@@ -1,0 +1,7 @@
+anthropic
+ollama
+pdf2image
+pytesseract
+pypdf
+reportlab
+Pillow
