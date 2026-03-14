@@ -41,7 +41,13 @@ fi
 # 4. Derive output path
 INPUT_DIR=$(cd "$(dirname "$1")" && pwd)
 INPUT_FILE=$(basename "$1")
-OUTPUT_FILE="${INPUT_FILE/ori_/pro_}"
+
+if [[ "$INPUT_FILE" == proc_* ]]; then
+    echo "❌ File already processed: $INPUT_FILE"
+    exit 1
+fi
+
+OUTPUT_FILE="proc_${INPUT_FILE#ori_}"
 
 # 5. Run pipeline
 echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"

@@ -43,6 +43,9 @@ SPEC used `anthropic-api-key`. Changed to `anthropic-german-mail` for clarity. A
 **Output layout changed from SPEC**
 Original scanned pages are NOT embedded in the output PDF. Layout: summary (page 1) → Claude translation → local translation.
 
+**Output prefix changed from SPEC**
+SPEC used `pro_`. Changed to `proc_` — more accurate ("processed"), less likely to clash with natural filenames. Any input not already prefixed `proc_` is accepted; `ori_` is stripped if present.
+
 **Presidio (M2) — unknown tuning effort**
 German-specific PII (IBAN, Aktenzeichen) may need custom Presidio recognisers. Test on a real letter before estimating.
 

@@ -32,7 +32,7 @@ docker compose build
 translate ~/mails/2024_001/ori_2024_001_letter.pdf
 ```
 
-Input must be prefixed `ori_`. Output `pro_` is saved in the same folder.
+Any file not prefixed `proc_` is treated as input. Output is prefixed `proc_`, saved in the same folder. The `ori_` prefix is stripped if present.
 Also accepts image files: `.jpg`, `.jpeg`, `.png`, `.tiff`
 
 ## Output

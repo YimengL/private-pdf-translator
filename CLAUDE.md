@@ -20,7 +20,8 @@ translate ~/path/to/ori_2024_001_mail.pdf
 ```
 
 - `translate` → `/usr/local/bin/translate` (from `translate.sh`)
-- Input prefixed `ori_`, output prefixed `pro_`, saved in same folder
+- Input: any file not prefixed `proc_` (strips `ori_` if present)
+- Output: prefixed `proc_`, saved in same folder
 - Also accepts: `.jpg`, `.jpeg`, `.png`, `.tiff`
 
 ## Architecture
