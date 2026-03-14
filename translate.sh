@@ -14,9 +14,17 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
-# 2. Build image if not present
-if ! docker image inspect german-mail-pipeline > /dev/null 2>&1; then
-    echo "🔨 Building Docker image (first time only)..."
+# 2. Build image if missing or source files have changed
+_needs_build() {
+    if ! docker image inspect german-mail-pipeline > /dev/null 2>&1; then
+        return 0
+    fi
+    IMAGE_TS=$(docker inspect german-mail-pipeline --format='{{.Created}}' | xargs -I{} date -j -f "%Y-%m-%dT%H:%M:%S" "{}" "+%s" 2>/dev/null)
+    LATEST=$(stat -f "%m" "$PIPELINE_DIR/Dockerfile" "$PIPELINE_DIR/requirements.txt" "$PIPELINE_DIR/pipeline.py" | sort -n | tail -1)
+    [ "$LATEST" -gt "$IMAGE_TS" ]
+}
+if _needs_build; then
+    echo "🔨 Building Docker image..."
     docker build -t german-mail-pipeline "$PIPELINE_DIR"
 fi
 
