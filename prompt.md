@@ -55,4 +55,4 @@ Why it matters: ...
 Skip synonyms and stylistic variations.
 
 ## FULL ENGLISH TRANSLATION
-Full accurate translation of the document.
+Full accurate translation of the document. Preserve the original paragraph structure, section breaks, and layout. Each paragraph in the original should be a separate paragraph in the translation. Keep headers as headers.
