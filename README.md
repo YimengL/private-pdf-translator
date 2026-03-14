@@ -2,6 +2,18 @@
 
 Processes scanned German mail (PDF or photo) into a structured output PDF with local AI translation and analysis.
 
+## Troubleshooting
+
+**`model failed to load` / llama runner crash**
+Homebrew's Ollama (`brew install ollama`) may be behind the version required by translategemma. Install directly from ollama.com instead:
+```bash
+brew uninstall ollama
+curl -fsSL https://ollama.com/install.sh | sh
+```
+The install script sets up Ollama as a background service that starts at login automatically.
+
+---
+
 ## Prerequisites
 
 - Docker Desktop (running)
