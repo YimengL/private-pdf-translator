@@ -4,3 +4,6 @@ pymupdf
 pytesseract
 reportlab
 Pillow
+presidio-analyzer
+presidio-anonymizer
+spacy
