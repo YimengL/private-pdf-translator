@@ -2,71 +2,73 @@
 
 ## Current Progress
 
-**Milestone M0 — complete.** All infrastructure and pipeline files created.
+**Milestone M1 — complete.** Pipeline tested on real scanned letter.
 
-| File | Status |
+| Milestone | Status |
 |---|---|
-| `.gitignore`, `requirements.txt`, `Dockerfile`, `docker-compose.yml` | ✅ |
-| `translate.sh` | ✅ |
-| `prompt.md` | ✅ |
-| `pipeline.py` | ✅ |
-| `README.md` | ✅ |
+| M0 — all files created | ✅ |
+| M1 — first real letter test | ✅ |
+| M2 — Presidio PII redaction | next |
+| M3 — Claude analysis + summary page | |
+| M4 — Polish (index, costs, English input) | |
 
-Pipeline runs end-to-end locally: OCR + translategemma + PDF assembly.
-Claude step intentionally blocked (see open decisions).
+**What works:**
+- pymupdf loads scanner PDFs correctly (poppler was too strict)
+- Tesseract OCR at 87-94% confidence on real German letters
+- Image masking removes embedded photo noise before OCR
+- OCR garbage line filtering (alpha ratio + min length)
+- Auto-rebuild Docker when `pipeline.py`, `Dockerfile`, or `requirements.txt` change
+- Pipeline gracefully degrades at each step
 
 ## Last Completed
 
-Full session build — all 8 files created and reviewed one by one.
-`CLAUDE.md` restructured as README. `HANDOVER.md` introduced.
+M1 real-letter test session. Key findings and fixes applied:
+- Switched from `pdf2image` (poppler) to `pymupdf` — handles scanner PDFs
+- Switched Ollama to native Mac install (Docker can't use Metal GPU)
+- Switched local translation from vision to text-to-text (OCR text → translategemma)
+- Added image region masking for OCR (white-out embedded photos)
+- Added OCR garbage line filter (`_clean_ocr_text`)
+- Reverted to `translategemma:4b` (12b also unreliable)
 
 ## Next Immediate Step
 
-**M0 wrap-up:**
-1. Commit all files (6 commits — see README for commit plan)
-2. `cp translate.sh /usr/local/bin/translate && chmod +x /usr/local/bin/translate`
-3. `docker compose build`
-
-**Then M1:** Run pipeline on a real scanned letter. Validate OCR + translategemma + PDF output.
+**M2 — Presidio PII redaction:**
+1. Add to `requirements.txt`: `presidio-analyzer`, `presidio-anonymizer`, `spacy`
+2. Add to `Dockerfile`: `python -m spacy download de_core_news_lg en_core_web_lg`
+3. Implement `step3_redact_de()` and `step5_redact_en()` in `pipeline.py`
+4. Test redaction on real letter — tune if IBAN/Aktenzeichen not caught
+5. Flip `REDACTION_IMPLEMENTED = True`
+6. Test full pipeline end-to-end with Claude
 
 ## Open Decisions & Known Issues
 
 **`REDACTION_IMPLEMENTED = False` in `pipeline.py`**
-Claude step (step 6) is hard-blocked. Do NOT flip to `True` until Presidio is fully implemented and tested in steps 3 & 5. This is intentional — no unredacted text should reach the cloud.
+Claude step (step 6) is hard-blocked. Do NOT flip to `True` until Presidio is fully implemented and tested. No unredacted text should ever reach the cloud.
 
-**translategemma diverged from SPEC**
-SPEC assumed translategemma was text-only. It is a vision model (Gemma 3, SigLIP encoder). Architecture was updated: translategemma now receives raw images directly. Tesseract is kept only for the OCR → redaction → Claude path.
+**Local translation quality — known issue**
+translategemma 4b and 12b both hallucinate on dense German legal/administrative text. Tested vision and text-to-text approaches — both unreliable. Local translation section in output PDF is currently poor quality. Not worth further effort — Claude (M2) is the quality path. Consider `qwen2.5:7b` as an alternative in future.
+
+**Presidio tuning — unknown effort**
+German-specific PII (IBAN, Aktenzeichen like `315.07.251484.0`) may need custom Presidio recognisers. Standard `de_core_news_lg` handles names/emails/phones well.
 
 **Keychain service name**
-SPEC used `anthropic-api-key`. Changed to `anthropic-german-mail` for clarity. All files use the new name.
-
-**Output layout changed from SPEC**
-Original scanned pages are NOT embedded in the output PDF. Layout: summary (page 1) → Claude translation → local translation.
+SPEC used `anthropic-api-key`. Changed to `anthropic-german-mail`.
 
 **Output prefix changed from SPEC**
-SPEC used `pro_`. Changed to `proc_` — more accurate ("processed"), less likely to clash with natural filenames. Any input not already prefixed `proc_` is accepted; `ori_` is stripped if present.
+SPEC used `pro_`. Changed to `proc_`. Any input not prefixed `proc_` is accepted; `ori_` stripped if present.
 
-**Presidio (M2) — unknown tuning effort**
-German-specific PII (IBAN, Aktenzeichen) may need custom Presidio recognisers. Test on a real letter before estimating.
+**Output layout changed from SPEC**
+Original scanned pages NOT in output PDF. Layout: local translation → OCR German (verification). When M2 done: summary → Claude translation → local translation → OCR German.
+
+**Ollama install**
+Must install from ollama.com directly — `brew install ollama` gives v0.18.0 which crashes with translategemma. See README troubleshooting.
 
 **sample_output.png not yet created**
-Deferred to M3. Add `make_sample.py` to generate a fake-data sample page for README and layout verification.
+Deferred to M3.
 
-**Local translation quality — known issue (translategemma 4b and 12b)**
-Both 4b and 12b hallucinate on dense German legal/administrative text — outputting unrelated German content instead of translating to English. Tested both vision and text-to-text approaches. Local translation section in output PDF is currently unreliable. Not worth further effort — Claude (M2) is the quality translation path. Consider replacing translategemma with a general-purpose model (e.g. `qwen2.5:7b`) as an alternative in future.
+## Future Ideas
 
-**Future idea: overlay translation on original layout**
-Replace original text with translated text while preserving page layout (images, formatting). Requires OCR bounding boxes + text alignment back to original positions. Too advanced for now — pymupdf supports it but alignment is fragile.
-
-**Future idea: page-correspondence layout**
-Each original page (full A4, not shrunk) followed immediately by its translation (can span multiple pages if long):
-```
-Page 1: original scan page 1
-Page 2-x: translation of page 1
-Page x+1: original scan page 2
-...
-```
-No correspondence lost. Implement after M3.
-
-**English input support (deferred to M4)**
-When input is English: skip translategemma (step 4), skip local translation section in PDF, no summary needed (user can read English directly). Detection via filename convention: `ori_en_YYYY_NNN_description.pdf`. Claude still runs for redaction + key info extraction. ~30 min once Presidio is in.
+- **Page-correspondence layout**: original scan page → translation pages → next scan page (no shrinking)
+- **Overlay translation on original layout**: replace German text with English in-place (advanced, pymupdf)
+- **English input support**: skip local translation, no summary needed, detect via filename prefix `en_`
+- **qwen2.5:7b**: try as alternative local translation model if needed
