@@ -48,3 +48,6 @@ German-specific PII (IBAN, Aktenzeichen) may need custom Presidio recognisers. T
 
 **sample_output.png not yet created**
 Deferred to M3. Add `make_sample.py` to generate a fake-data sample page for README and layout verification.
+
+**English input support (deferred to M4)**
+When input is English: skip translategemma (step 4), skip local translation section in PDF, no summary needed (user can read English directly). Detection via filename convention: `ori_en_YYYY_NNN_description.pdf`. Claude still runs for redaction + key info extraction. ~30 min once Presidio is in.
