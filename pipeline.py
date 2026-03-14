@@ -1,4 +1,3 @@
-import io
 import json
 import logging
 import os
@@ -26,7 +25,7 @@ log = logging.getLogger(__name__)
 # ── Constants ────────────────────────────────────────────────────────────────
 REDACTION_IMPLEMENTED = False   # guard: flip to True once Presidio is added
 OLLAMA_HOST           = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-TRANSLATE_MODEL       = "translategemma"
+TRANSLATE_MODEL       = "translategemma:4b"
 TRANSLATE_TIMEOUT     = 300     # seconds per page
 MAX_LONG_SIDE         = 3508    # ~A4 at 300 DPI
 SUPPORTED_IMAGES      = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
@@ -40,17 +39,31 @@ def main(input_pdf: str, output_pdf: str) -> None:
     log.info(f"Input:  {input_pdf}")
     log.info(f"Output: {output_pdf}")
 
-    images           = step1_load_input(input_pdf)
-    raw_german, conf = step2_ocr(images)
+    images, images_for_ocr = step1_load_input(input_pdf)
+    raw_german, conf       = step2_ocr(images_for_ocr)
     german_redacted  = step3_redact_de(raw_german)
-    local_english    = step4_local_translate(images)
+    local_english    = step4_local_translate(raw_german)
     english_redacted = step5_redact_en(local_english)
     claude_output    = step6_claude(german_redacted, english_redacted, conf)
-    step7_build_pdf(output_pdf, local_english, claude_output)
+    step7_build_pdf(output_pdf, raw_german, local_english, claude_output)
     update_index(input_pdf, claude_output)
 
 
 # ── Step 1: Load input ───────────────────────────────────────────────────────
+def _mask_image_regions(pil_img: Image.Image, page: fitz.Page, scale: float) -> Image.Image:
+    """White-out embedded image regions so Tesseract only sees text."""
+    from PIL import ImageDraw
+    img = pil_img.copy()
+    draw = ImageDraw.Draw(img)
+    for item in page.get_images(full=True):
+        xref = item[0]
+        for rect in page.get_image_rects(xref):
+            x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
+            x1, y1 = int(rect.x1 * scale), int(rect.y1 * scale)
+            draw.rectangle([x0, y0, x1, y1], fill="white")
+    return img
+
+
 def _normalise_image(img: Image.Image) -> Image.Image:
     w, h = img.size
     long_side = max(w, h)
@@ -62,33 +75,50 @@ def _normalise_image(img: Image.Image) -> Image.Image:
     return img
 
 
-def step1_load_input(input_path: str) -> list | None:
+def step1_load_input(input_path: str) -> tuple[list, list] | tuple[None, None]:
     log.info("Step 1: Load input")
     try:
         suffix = Path(input_path).suffix.lower()
         if suffix == ".pdf":
             doc = fitz.open(input_path)
-            mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
-            images = []
+            mat = fitz.Matrix(300/72, 300/72)
+            scale = 300/72
+            images, images_for_ocr = [], []
             for page in doc:
-                pix = page.get_pixmap(matrix=mat)
+                pix = page.get_pixmap(matrix=mat, annots=False)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 images.append(img)
+                images_for_ocr.append(_mask_image_regions(img, page, scale))
             log.info(f"  PDF: {len(images)} page(s) at 300 DPI")
         elif suffix in SUPPORTED_IMAGES:
-            img = Image.open(input_path)
-            images = [_normalise_image(img)]
+            img = _normalise_image(Image.open(input_path))
+            images = [img]
+            images_for_ocr = [img]  # no embedded images to mask
             log.info(f"  Image: 1 page loaded")
         else:
             log.warning(f"  Unsupported file type: {suffix}")
-            return None
-        return images
+            return None, None
+        return images, images_for_ocr
     except Exception as e:
         log.warning(f"Step 1 FAILED: {e}")
-        return None
+        return None, None
 
 
 # ── Step 2: Tesseract OCR ────────────────────────────────────────────────────
+def _clean_ocr_text(text: str) -> str:
+    clean = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            clean.append(line)
+            continue
+        alpha_ratio = sum(c.isalnum() or c.isspace() for c in stripped) / len(stripped)
+        word_count = len(stripped.split())
+        if alpha_ratio >= 0.6 and (word_count >= 3 or len(stripped) >= 15):
+            clean.append(line)
+    return "\n".join(clean)
+
+
 def step2_ocr(images: list | None) -> tuple[str | None, float]:
     log.info("Step 2: Tesseract OCR")
     if images is None:
@@ -112,7 +142,7 @@ def step2_ocr(images: list | None) -> tuple[str | None, float]:
         else:
             log.info(f"  OCR confidence: {avg_conf:.0f}%")
 
-        result = "\n\n---\n\n".join(pages)
+        result = _clean_ocr_text("\n\n---\n\n".join(pages))
         log.info(f"  Extracted {len(result)} characters")
         return result, avg_conf
     except Exception as e:
@@ -131,33 +161,31 @@ def step3_redact_de(text: str | None) -> str | None:
 
 
 # ── Step 4: Local translation (translategemma vision) ───────────────────────
-def step4_local_translate(images: list | None) -> str | None:
+def step4_local_translate(raw_german: str | None) -> str | None:
     log.info("Step 4: Local translation (translategemma)")
-    if images is None:
-        log.warning("  Skipping — no images")
+    if raw_german is None:
+        log.warning("  Skipping — no OCR text")
         return None
     try:
         client = ollama.Client(host=OLLAMA_HOST, timeout=TRANSLATE_TIMEOUT)
-        log.info("  Ensuring translategemma model is available...")
-        client.pull(TRANSLATE_MODEL)
+        models = client.list()
+        cached = any(TRANSLATE_MODEL in m.model for m in models.models)
+        if cached:
+            log.info(f"  Using cached {TRANSLATE_MODEL} — run 'ollama pull {TRANSLATE_MODEL}' to update")
+        else:
+            log.info(f"  Downloading {TRANSLATE_MODEL} (first time, please wait)...")
+            client.pull(TRANSLATE_MODEL)
+            log.info(f"  Download complete")
 
-        pages = []
-        for i, img in enumerate(images, 1):
-            log.info(f"  Translating page {i}/{len(images)}")
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            response = client.chat(
-                model=TRANSLATE_MODEL,
-                messages=[{
-                    "role": "user",
-                    "content": "Translate every word of this German document page to English. Do not summarise or skip any content. Output a complete word-for-word translation.",
-                    "images": [buf.getvalue()]
-                }],
-                options={"num_predict": 4096}
-            )
-            pages.append(response.message.content)
-
-        result = "\n\n---\n\n".join(pages)
+        response = client.chat(
+            model=TRANSLATE_MODEL,
+            messages=[{
+                "role": "user",
+                "content": f"Translate every word of the following German text to English. Keep legal citations (§ numbers, law abbreviations like StVO, StVG, BKat, OWiG) exactly as they appear in German. Do not summarise or skip any content. Output a complete word-for-word translation.\n\n{raw_german}"
+            }],
+            options={"num_predict": 4096}
+        )
+        result = response.message.content
         log.info(f"  Translation: {len(result)} characters")
         return result
     except Exception as e:
@@ -266,8 +294,8 @@ def _text_to_flowables(content: str, title: str, styles: dict) -> list:
     return flowables
 
 
-def step7_build_pdf(output_pdf: str, local_english: str | None,
-                    claude_output: str | None) -> None:
+def step7_build_pdf(output_pdf: str, raw_german: str | None,
+                    local_english: str | None, claude_output: str | None) -> None:
     log.info("Step 7: Build output PDF")
     try:
         styles = _make_styles()
@@ -284,6 +312,12 @@ def step7_build_pdf(output_pdf: str, local_english: str | None,
                 story.append(PageBreak())
             story += _text_to_flowables(
                 local_english, "Local LLM Translation (translategemma)", styles)
+
+        if raw_german:
+            if story:
+                story.append(PageBreak())
+            story += _text_to_flowables(
+                raw_german, "OCR Output (German — for verification)", styles)
 
         if not story:
             log.warning("  No content — pipeline produced no output")
