@@ -8,11 +8,10 @@ from datetime import datetime
 from pathlib import Path
 
 import anthropic
+import fitz  # pymupdf
 import ollama
 import pytesseract
-from pdf2image import convert_from_path
 from PIL import Image
-from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -68,7 +67,13 @@ def step1_load_input(input_path: str) -> list | None:
     try:
         suffix = Path(input_path).suffix.lower()
         if suffix == ".pdf":
-            images = convert_from_path(input_path, dpi=300)
+            doc = fitz.open(input_path)
+            mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
+            images = []
+            for page in doc:
+                pix = page.get_pixmap(matrix=mat)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                images.append(img)
             log.info(f"  PDF: {len(images)} page(s) at 300 DPI")
         elif suffix in SUPPORTED_IMAGES:
             img = Image.open(input_path)
@@ -145,9 +150,10 @@ def step4_local_translate(images: list | None) -> str | None:
                 model=TRANSLATE_MODEL,
                 messages=[{
                     "role": "user",
-                    "content": "Translate this German document page to English. Output only the translation, no commentary.",
+                    "content": "Translate every word of this German document page to English. Do not summarise or skip any content. Output a complete word-for-word translation.",
                     "images": [buf.getvalue()]
-                }]
+                }],
+                options={"num_predict": 4096}
             )
             pages.append(response.message.content)
 
@@ -239,19 +245,24 @@ def _parse_claude_output(text: str) -> tuple[str, str]:
 def _make_styles() -> dict:
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     return {
-        "h1":   ParagraphStyle("h1",   fontName="Helvetica-Bold", fontSize=16, spaceAfter=6),
-        "h2":   ParagraphStyle("h2",   fontName="Helvetica-Bold", fontSize=12, spaceAfter=4),
-        "body": ParagraphStyle("body", fontName="STSong-Light",   fontSize=10, leading=14),
+        "h1":       ParagraphStyle("h1",       fontName="Helvetica-Bold", fontSize=16, spaceAfter=6),
+        "h2":       ParagraphStyle("h2",       fontName="Helvetica-Bold", fontSize=12, spaceAfter=4),
+        "body":     ParagraphStyle("body",     fontName="Helvetica",      fontSize=10, leading=14),
+        "body_cjk": ParagraphStyle("body_cjk", fontName="STSong-Light",   fontSize=10, leading=14),
     }
+
+
+def _clean_line(line: str) -> str:
+    return re.sub(r'\*+([^*]+)\*+', r'\1', line)  # strip **bold** and *italic*
 
 
 def _text_to_flowables(content: str, title: str, styles: dict) -> list:
     flowables = [Paragraph(title, styles["h1"]), Spacer(1, 6*mm)]
     for line in content.splitlines():
         if line.startswith("## "):
-            flowables += [Spacer(1, 4*mm), Paragraph(line[3:], styles["h2"])]
+            flowables += [Spacer(1, 4*mm), Paragraph(_clean_line(line[3:]), styles["h2"])]
         elif line.strip():
-            flowables.append(Paragraph(line, styles["body"]))
+            flowables.append(Paragraph(_clean_line(line), styles["body"]))
     return flowables
 
 
@@ -269,7 +280,9 @@ def step7_build_pdf(output_pdf: str, local_english: str | None,
                 story += [PageBreak()] + _text_to_flowables(translation, "Claude Translation", styles)
 
         if local_english:
-            story += [PageBreak()] + _text_to_flowables(
+            if story:
+                story.append(PageBreak())
+            story += _text_to_flowables(
                 local_english, "Local LLM Translation (translategemma)", styles)
 
         if not story:

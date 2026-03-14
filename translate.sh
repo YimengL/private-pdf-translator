@@ -14,7 +14,13 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
-# 2. Start Docker Desktop if not running
+# 2. Build image if not present
+if ! docker image inspect german-mail-pipeline > /dev/null 2>&1; then
+    echo "🔨 Building Docker image (first time only)..."
+    docker build -t german-mail-pipeline "$PIPELINE_DIR"
+fi
+
+# 3. Start Docker Desktop if not running
 if ! docker info > /dev/null 2>&1; then
     echo "🐳 Starting Docker Desktop..."
     open -a Docker
@@ -29,7 +35,7 @@ if ! docker info > /dev/null 2>&1; then
     done
 fi
 
-# 3. Retrieve API key from Mac Keychain
+# 4. Retrieve API key from Mac Keychain
 API_KEY=$(security find-generic-password \
     -a "$USER" -s "anthropic-german-mail" -w 2>/dev/null || true)
 if [ -z "$API_KEY" ]; then
@@ -38,7 +44,7 @@ if [ -z "$API_KEY" ]; then
     exit 1
 fi
 
-# 4. Derive output path
+# 5. Derive output path
 INPUT_DIR=$(cd "$(dirname "$1")" && pwd)
 INPUT_FILE=$(basename "$1")
 
@@ -49,9 +55,11 @@ fi
 
 OUTPUT_FILE="proc_${INPUT_FILE#ori_}"
 
-# 5. Run pipeline
+# 6. Run pipeline
 echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"
-docker compose -f "$PIPELINE_DIR/docker-compose.yml" run --rm \
+docker run --rm \
     -e ANTHROPIC_API_KEY="$API_KEY" \
+    -e OLLAMA_HOST=http://host.docker.internal:11434 \
     -v "$INPUT_DIR:/data" \
-    pipeline python3 pipeline.py "/data/$INPUT_FILE" "/data/$OUTPUT_FILE"
+    german-mail-pipeline \
+    python3 pipeline.py "/data/$INPUT_FILE" "/data/$OUTPUT_FILE"

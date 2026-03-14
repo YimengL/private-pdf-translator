@@ -1,7 +1,6 @@
 anthropic
 ollama
-pdf2image
+pymupdf
 pytesseract
-pypdf
 reportlab
 Pillow
