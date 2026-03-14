@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
-REDACTION_IMPLEMENTED = False   # guard: flip to True once Presidio is added
+REDACTION_IMPLEMENTED = True    # Presidio PII redaction active
 OLLAMA_HOST           = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 TRANSLATE_MODEL       = "translategemma:4b"
 TRANSLATE_TIMEOUT     = 300     # seconds per page
@@ -150,14 +150,129 @@ def step2_ocr(images: list | None) -> tuple[str | None, float]:
         return None, 0.0
 
 
+# ── PII masking helpers ──────────────────────────────────────────────────────
+def _mask_value(value: str) -> str:
+    n = len(value)
+    if n == 0:
+        return value
+    if n <= 8:
+        show = max(0, n - 5)
+        if show == 0:
+            return "*" * n
+        show_s = max(1, show // 2 + show % 2)
+        show_e = show - show_s
+        if show_e == 0:
+            return value[:show_s] + "*" * (n - show_s)
+        return value[:show_s] + "*" * (n - show_s - show_e) + value[n - show_e:]
+    else:
+        show_s = max(1, n // 5)
+        show_e = max(1, n // 5)
+        return value[:show_s] + "*" * (n - show_s - show_e) + value[n - show_e:]
+
+
+def _redact(entity_type: str, matched_text: str) -> str:
+    if entity_type == "PASSWORD":
+        for sep in (":", "="):
+            if sep in matched_text:
+                idx = matched_text.index(sep)
+                keyword = matched_text[:idx + 1]
+                value = matched_text[idx + 1:].strip()
+                return f"{keyword} [PASSWORD: {'*' * len(value)}]"
+        return f"[PASSWORD: {'*' * len(matched_text)}]"
+    return f"[{entity_type}: {_mask_value(matched_text)}]"
+
+
+# ── Presidio lazy singletons ─────────────────────────────────────────────────
+_presidio_de = _presidio_en = _presidio_anon = None
+
+
+def _get_presidio_de():
+    global _presidio_de, _presidio_anon
+    if _presidio_de is None:
+        from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, PatternRecognizer, Pattern
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+        from presidio_anonymizer import AnonymizerEngine
+
+        tax_id = PatternRecognizer(
+            supported_entity="TAX_ID",
+            patterns=[
+                Pattern("steuer_id",      r"\b\d{2}\s?\d{3}\s?\d{3}\s?\d{3}\b", 0.85),
+                Pattern("steuernr_slash", r"\b\d{2,3}/\d{3}/\d{4,5}\b",          0.80),
+                Pattern("steuernr_plain", r"\b\d{10,13}\b",                        0.40),
+            ],
+            context=["Steuer-ID", "Steuernummer", "StNr", "IdNr"],
+            supported_language="de",
+        )
+        password = PatternRecognizer(
+            supported_entity="PASSWORD",
+            patterns=[Pattern("password_de",
+                r"(?:Passwort|Kennwort|Zugangscode|Passcode|PIN)\s*[:=]\s*\S+", 0.9)],
+            context=["Passwort", "Kennwort", "Zugangscode", "PIN"],
+            supported_language="de",
+        )
+        provider = NlpEngineProvider(nlp_configuration={
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "de", "model_name": "de_core_news_lg"}],
+        })
+        registry = RecognizerRegistry()
+        registry.load_predefined_recognizers(languages=["de"])
+        registry.add_recognizer(tax_id)
+        registry.add_recognizer(password)
+        _presidio_de = AnalyzerEngine(nlp_engine=provider.create_engine(),
+                                      registry=registry, supported_languages=["de"])
+        _presidio_anon = AnonymizerEngine()
+        log.info("Presidio DE engine initialised")
+    return _presidio_de, _presidio_anon
+
+
+def _get_presidio_en():
+    global _presidio_en, _presidio_anon
+    if _presidio_en is None:
+        from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+        from presidio_anonymizer import AnonymizerEngine
+
+        provider = NlpEngineProvider(nlp_configuration={
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}],
+        })
+        registry = RecognizerRegistry()
+        registry.load_predefined_recognizers(languages=["en"])
+        _presidio_en = AnalyzerEngine(nlp_engine=provider.create_engine(),
+                                      registry=registry, supported_languages=["en"])
+        if _presidio_anon is None:
+            _presidio_anon = AnonymizerEngine()
+        log.info("Presidio EN engine initialised")
+    return _presidio_en, _presidio_anon
+
+
 # ── Step 3: PII redaction (German) — stub ───────────────────────────────────
 def step3_redact_de(text: str | None) -> str | None:
     log.info("Step 3: PII redaction (German)")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Redaction not implemented — output withheld from Claude")
         return None
-    # TODO: Presidio German redaction
-    return text
+    if text is None:
+        log.warning("  Skipping — no OCR text")
+        return None
+    try:
+        from presidio_anonymizer.entities import OperatorConfig
+        analyzer, anonymizer = _get_presidio_de()
+        DE_ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE", "TAX_ID", "PASSWORD"]
+        results = analyzer.analyze(text=text, language="de", entities=DE_ENTITIES)
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r.entity_type] = counts.get(r.entity_type, 0) + 1
+        log.info(f"  Entities found: {counts}" if counts else "  No PII entities found")
+        operators = {
+            e: OperatorConfig("custom", {"lambda": lambda x, et=e: _redact(et, x)})
+            for e in DE_ENTITIES
+        }
+        redacted = anonymizer.anonymize(text=text, analyzer_results=results, operators=operators)
+        return redacted.text
+    except Exception as e:
+        log.warning(f"Step 3 FAILED: {e} — withholding from Claude")
+        return None
 
 
 # ── Step 4: Local translation (translategemma vision) ───────────────────────
@@ -199,8 +314,27 @@ def step5_redact_en(text: str | None) -> str | None:
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Redaction not implemented — output withheld from Claude")
         return None
-    # TODO: Presidio English redaction
-    return text
+    if text is None:
+        log.warning("  Skipping — no translation text")
+        return None
+    try:
+        from presidio_anonymizer.entities import OperatorConfig
+        analyzer, anonymizer = _get_presidio_en()
+        EN_ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE"]
+        results = analyzer.analyze(text=text, language="en", entities=EN_ENTITIES)
+        counts: dict[str, int] = {}
+        for r in results:
+            counts[r.entity_type] = counts.get(r.entity_type, 0) + 1
+        log.info(f"  Entities found: {counts}" if counts else "  No PII entities found")
+        operators = {
+            e: OperatorConfig("custom", {"lambda": lambda x, et=e: _redact(et, x)})
+            for e in EN_ENTITIES
+        }
+        redacted = anonymizer.anonymize(text=text, analyzer_results=results, operators=operators)
+        return redacted.text
+    except Exception as e:
+        log.warning(f"Step 5 FAILED: {e} — withholding from Claude")
+        return None
 
 
 # ── Step 6: Claude API ───────────────────────────────────────────────────────
