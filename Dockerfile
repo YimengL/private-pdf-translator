@@ -17,3 +17,4 @@ RUN python -m spacy download de_core_news_lg \
 
 COPY pipeline.py .
 COPY prompt.md .
+COPY prompt_en.md .

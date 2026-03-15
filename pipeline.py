@@ -30,6 +30,7 @@ TRANSLATE_TIMEOUT     = 300     # seconds per page
 MAX_LONG_SIDE         = 3508    # ~A4 at 300 DPI
 SUPPORTED_IMAGES      = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 PROMPT_PATH           = Path(__file__).parent / "prompt.md"
+PROMPT_EN_PATH        = Path(__file__).parent / "prompt_en.md"
 INDEX_PATH            = Path.home() / ".german-mail" / "index.json"
 OCR_CONFIDENCE_WARN   = 70.0    # % below which we flag low confidence
 
@@ -41,11 +42,14 @@ def main(input_pdf: str, output_pdf: str) -> None:
 
     images, images_for_ocr = step1_load_input(input_pdf)
     raw_german, conf       = step2_ocr(images_for_ocr)
-    german_redacted  = step3_redact_de(raw_german)
-    local_english    = step4_local_translate(raw_german)
-    english_redacted = step5_redact_en(local_english)
-    claude_output    = step6_claude(german_redacted, english_redacted, conf)
-    step7_build_pdf(output_pdf, raw_german, local_english, claude_output)
+    is_english             = _detect_language(raw_german)
+    if is_english:
+        log.info("  Detected English document — skipping local translation")
+    german_redacted  = None if is_english else step3_redact_de(raw_german)
+    local_english    = None if is_english else step4_local_translate(raw_german)
+    english_redacted = step5_redact_en(raw_german if is_english else local_english)
+    claude_output    = step6_claude(german_redacted, english_redacted, conf, is_english)
+    step7_build_pdf(output_pdf, raw_german, local_english, claude_output, is_english)
     update_index(input_pdf, claude_output)
 
 
@@ -354,6 +358,17 @@ def _load_index_context() -> str:
     )
 
 
+def _detect_language(text: str | None) -> bool:
+    """Returns True if document is predominantly English."""
+    if not text:
+        return False
+    try:
+        from langdetect import detect
+        return detect(text) == "en"
+    except Exception:
+        return False
+
+
 def _log_cost(usage) -> None:
     input_cost  = usage.input_tokens  / 1_000_000 * 3.0
     output_cost = usage.output_tokens / 1_000_000 * 15.0
@@ -366,21 +381,26 @@ def _log_cost(usage) -> None:
 
 
 def step6_claude(german_redacted: str | None, english_redacted: str | None,
-                 ocr_confidence: float) -> str | None:
+                 ocr_confidence: float, is_english: bool = False) -> str | None:
     log.info("Step 6: Claude API analysis")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Skipping — PII redaction not yet implemented. No unredacted text sent to cloud.")
         return None
-    if german_redacted is None or english_redacted is None:
+    if english_redacted is None:
+        log.warning("  Skipping — missing redacted input")
+        return None
+    if not is_english and german_redacted is None:
         log.warning("  Skipping — missing redacted input")
         return None
     try:
-        prompt = PROMPT_PATH.read_text(encoding="utf-8").format(
-            ocr_confidence=f"{ocr_confidence:.0f}",
-            index_context=_load_index_context(),
-            german_redacted=german_redacted,
-            english_redacted=english_redacted,
-        )
+        prompt_path = PROMPT_EN_PATH if is_english else PROMPT_PATH
+        fmt_args = dict(ocr_confidence=f"{ocr_confidence:.0f}", index_context=_load_index_context())
+        if is_english:
+            fmt_args["english_redacted"] = english_redacted
+        else:
+            fmt_args["german_redacted"]  = german_redacted
+            fmt_args["english_redacted"] = english_redacted
+        prompt = prompt_path.read_text(encoding="utf-8").format(**fmt_args)
         client = anthropic.Anthropic()
         for attempt in (1, 2):
             try:
@@ -464,7 +484,8 @@ def _text_to_flowables(content: str, title: str, styles: dict) -> list:
 
 
 def step7_build_pdf(output_pdf: str, raw_german: str | None,
-                    local_english: str | None, claude_output: str | None) -> None:
+                    local_english: str | None, claude_output: str | None,
+                    is_english: bool = False) -> None:
     log.info("Step 7: Build output PDF")
     try:
         styles = _make_styles()
@@ -476,17 +497,18 @@ def step7_build_pdf(output_pdf: str, raw_german: str | None,
             if translation:
                 story += [PageBreak()] + _text_to_flowables(translation, "Claude Translation", styles)
 
-        if local_english:
-            if story:
-                story.append(PageBreak())
-            story += _text_to_flowables(
-                local_english, "Local LLM Translation (translategemma)", styles)
+        if not is_english:
+            if local_english:
+                if story:
+                    story.append(PageBreak())
+                story += _text_to_flowables(
+                    local_english, "Local LLM Translation (translategemma)", styles)
 
-        if raw_german:
-            if story:
-                story.append(PageBreak())
-            story += _text_to_flowables(
-                raw_german, "OCR Output (German — for verification)", styles)
+            if raw_german:
+                if story:
+                    story.append(PageBreak())
+                story += _text_to_flowables(
+                    raw_german, "OCR Output (German — for verification)", styles)
 
         if not story:
             log.warning("  No content — pipeline produced no output")
