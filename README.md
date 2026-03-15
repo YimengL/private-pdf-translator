@@ -33,9 +33,7 @@ git clone git@github.com:yourname/private-pdf-translator.git ~/git/private-pdf-t
 cp translate.sh /usr/local/bin/translate
 chmod +x /usr/local/bin/translate
 
-# Build the Docker image (first time only, ~5 min)
-cd ~/git/private-pdf-translator
-docker compose build
+# The image is built automatically on first run of `translate`
 ```
 
 ## Usage
@@ -50,27 +48,23 @@ Also accepts image files: `.jpg`, `.jpeg`, `.png`, `.tiff`
 ## Output
 
 ```
-Page 1        Summary — importance score, action points, key info (EN + 中文),
-                        local LLM quality score, disagreements
+Page 1        Summary — importance score, type, sender, deadline, action points,
+                        key info (EN + 中文), sensitive info, disagreements
 Page 2–x      Claude full translation
-Page x–y      translategemma full translation
+Page x–y      translategemma translation
+Page y–z      OCR German (for verification)
 ```
 
-## Current limitations
+PII redacted before any text reaches Claude:
+- Phone numbers, IBAN, tax ID, passwords (German)
+- Phone numbers, IBAN (English translation)
 
-PII redaction (Presidio) is not yet implemented. Until it is:
-- Claude analysis step is **skipped** — no unredacted text is sent to cloud
-- Output contains local LLM translation only
-- A warning is printed in the logs
+## Known limitations
+
+- Local LLM (translategemma 4b) hallucination on dense legal text — Claude output is reliable, local translation is best-effort
+- CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
 
 ## Local data
 
 - `~/.german-mail/index.json` — processed document history
 - `~/.german-mail/costs.log` — Claude API cost log
-
-## Next iteration
-
-- [ ] Add Presidio PII redaction (steps 3 & 5 in `pipeline.py`)
-- [ ] Set `REDACTION_IMPLEMENTED = True` in `pipeline.py`
-- [ ] Claude analysis and summary page become active
-- [ ] Generate `sample_output.png` with fake data to verify layout, fonts, and Chinese rendering
