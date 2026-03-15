@@ -1,6 +1,10 @@
 # German Mail Pipeline
 
-Processes scanned German mail (PDF or photo) into a structured output PDF with local AI translation and analysis.
+Processes scanned German mail (PDF or photo) into a structured output PDF. Uses Tesseract OCR,
+Presidio PII redaction, translategemma:4b (local LLM) for a best-effort translation, and
+Claude AI (claude-sonnet-4-6) to translate and analyse the redacted content.
+
+![Sample output](sample_output.jpg)
 
 ## Troubleshooting
 
@@ -47,22 +51,32 @@ Also accepts image files: `.jpg`, `.jpeg`, `.png`, `.tiff`
 
 ## Output
 
+**German input:**
 ```
 Page 1        Summary — importance score, type, sender, deadline, action points,
-                        key info (EN + 中文), sensitive info, disagreements
+                        key info (EN + 中文), sensitive info
 Page 2–x      Claude full translation
 Page x–y      translategemma translation
 Page y–z      OCR German (for verification)
 ```
 
+**English input (auto-detected):**
+```
+Page 1        Summary — importance score, type, sender, deadline, action points,
+                        key info (EN + 中文), sensitive info
+Page 2–x      Claude analysis
+```
+
 PII redacted before any text reaches Claude:
-- Phone numbers, IBAN, tax ID, passwords (German)
-- Phone numbers, IBAN (English translation)
+- German input: phone numbers, IBAN, tax ID, passwords
+- English input: phone numbers, IBAN
 
 ## Known limitations
 
 - Local LLM (translategemma 4b) hallucination on dense legal text — Claude output is reliable, local translation is best-effort
 - CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
+- English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
+- Image input (.jpg, .png etc.) — code path exists but untested
 
 ## Local data
 

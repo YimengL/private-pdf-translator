@@ -29,23 +29,25 @@ translate ~/path/to/ori_2024_001_mail.pdf
 ```
 translate.sh → Docker → pipeline.py
   Step 1: pdf2image       — PDF/image → PIL images
-  Step 2: Tesseract OCR   — images → German text + confidence (redaction path)
-  Step 3: Presidio        — redact German text (stub)
-  Step 4: translategemma  — images → English translation (vision, local)
-  Step 5: Presidio        — redact English text (stub)
-  Step 6: Claude API      — blocked until REDACTION_IMPLEMENTED = True
-  Step 7: PDF assembly    — summary + Claude translation + local translation
+  Step 2: Tesseract OCR   — images → text + confidence
+  Step 2b: langdetect     — detect language → is_english flag
+  Step 3: Presidio        — redact German text (skipped for English input)
+  Step 4: translategemma  — German text → English translation (skipped for English input)
+  Step 5: Presidio        — redact English text
+  Step 6: Claude API      — analyse redacted text (prompt.md or prompt_en.md)
+  Step 7: PDF assembly    — summary + Claude translation [+ local translation + OCR German if German]
 ```
 
 ## Tech Stack
 
 - Python 3.12, Docker Desktop
 - Tesseract (`lang=deu`, `--psm 1`)
-- translategemma via Ollama (vision model)
-- Microsoft Presidio (PII redaction — not yet active)
+- translategemma via Ollama (text-to-text, local)
+- langdetect (language detection)
+- Microsoft Presidio (PII redaction — active)
 - Claude API `claude-sonnet-4-6`
 - reportlab + STSong-Light (CJK), pypdf
-- `prompt.md` — Claude prompt template (edit to tune without touching pipeline.py)
+- `prompt.md` / `prompt_en.md` — Claude prompt templates (edit to tune without touching pipeline.py)
 
 ## Secrets
 
