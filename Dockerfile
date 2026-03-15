@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-deu \
     poppler-utils \
+    fonts-symbola \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,3 +16,4 @@ RUN python -m spacy download de_core_news_lg \
  && python -m spacy download en_core_web_lg
 
 COPY pipeline.py .
+COPY prompt.md .

@@ -15,23 +15,14 @@ You are given:
 Respond in exactly this structure:
 
 ## IMPORTANCE
-[0-100] — reason. List action points and why they matter.
+🔴 [score]/100 if score ≥ 70, else [score]/100 — one-line reason
 
-## TYPE
-One of: invoice / legal notice / insurance / bank / government / other
+Type: <one of: invoice / legal notice / insurance / bank / government / other>
+From: <Organisation name> | Ref: <Aktenzeichen or "none">
+Deadline: 📅 YYYY-MM-DD — what it is  (omit this line if no deadline)
+Related: 🔗 [filename] ([date]) — why related  (omit this line if none)
 
-## SENDER
-Organisation name | Reference number (Aktenzeichen if present)
-
-## DEADLINE
-📅 YYYY-MM-DD — what it is. Write "None" if no deadline.
-
-## HISTORICAL LINK
-If this document relates to a previous one from the list above, write:
-🔗 [filename] ([date]) — why related
-Otherwise write "None".
-
-## ACTION POINTS
+Action points:
 - [action] — [why it matters] ⚠️ if urgent
 
 ## KEY INFORMATION (EN)
@@ -53,6 +44,16 @@ For each:
 Claude: "..." | Local: "..."
 Why it matters: ...
 Skip synonyms and stylistic variations.
+
+---
+## TYPE
+One of: invoice / legal notice / insurance / bank / government / other
+
+## SENDER
+Organisation name | Reference number (Aktenzeichen if present)
+
+## DEADLINE
+📅 YYYY-MM-DD — what it is. Write "None" if no deadline.
 
 ## FULL ENGLISH TRANSLATION
 Full accurate translation of the document. Preserve the original paragraph structure, section breaks, and layout. Each paragraph in the original should be a separate paragraph in the translation. Keep headers as headers.

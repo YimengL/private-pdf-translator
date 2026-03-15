@@ -8,7 +8,7 @@
 |---|---|
 | M0 — all files created | ✅ |
 | M1 — first real letter test | ✅ |
-| M2 — Presidio PII redaction | next |
+| M2 — Presidio PII redaction | ✅ |
 | M3 — Claude analysis + summary page | |
 | M4 — Polish (index, costs, English input) | |
 
@@ -32,18 +32,15 @@ M1 real-letter test session. Key findings and fixes applied:
 
 ## Next Immediate Step
 
-**M2 — Presidio PII redaction:**
-1. Add to `requirements.txt`: `presidio-analyzer`, `presidio-anonymizer`, `spacy`
-2. Add to `Dockerfile`: `python -m spacy download de_core_news_lg en_core_web_lg`
-3. Implement `step3_redact_de()` and `step5_redact_en()` in `pipeline.py`
-4. Test redaction on real letter — tune if IBAN/Aktenzeichen not caught
-5. Flip `REDACTION_IMPLEMENTED = True`
-6. Test full pipeline end-to-end with Claude
+**M3 — Claude analysis + summary page:**
+1. Run full pipeline end-to-end on a real letter — verify Claude step now fires
+2. Check `## SENSITIVE INFO` section in Claude output — confirm entity types logged, no values leaked
+3. Tune Presidio if IBAN / Aktenzeichen not caught correctly
+4. Build summary page in output PDF (sender, type, deadline, action)
 
 ## Open Decisions & Known Issues
 
-**`REDACTION_IMPLEMENTED = False` in `pipeline.py`**
-Claude step (step 6) is hard-blocked. Do NOT flip to `True` until Presidio is fully implemented and tested. No unredacted text should ever reach the cloud.
+**`REDACTION_IMPLEMENTED = True`** — Presidio active, Claude step unblocked.
 
 **Local translation quality — known issue**
 translategemma 4b and 12b both hallucinate on dense German legal/administrative text. Tested vision and text-to-text approaches — both unreliable. Local translation section in output PDF is currently poor quality. Not worth further effort — Claude (M2) is the quality path. Consider `qwen2.5:7b` as an alternative in future.

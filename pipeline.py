@@ -58,6 +58,12 @@ def _mask_image_regions(pil_img: Image.Image, page: fitz.Page, scale: float) -> 
     for item in page.get_images(full=True):
         xref = item[0]
         for rect in page.get_image_rects(xref):
+            page_rect = page.rect
+            page_area = page_rect.width * page_rect.height
+            img_area  = rect.width * rect.height
+            if img_area / page_area > 0.9:
+                log.info("  Skipping — full-page image (scanned PDF)")
+                continue
             x0, y0 = int(rect.x0 * scale), int(rect.y0 * scale)
             x1, y1 = int(rect.x1 * scale), int(rect.y1 * scale)
             draw.rectangle([x0, y0, x1, y1], fill="white")
@@ -214,7 +220,7 @@ def _get_presidio_de():
             "nlp_engine_name": "spacy",
             "models": [{"lang_code": "de", "model_name": "de_core_news_lg"}],
         })
-        registry = RecognizerRegistry()
+        registry = RecognizerRegistry(supported_languages=["de"])
         registry.load_predefined_recognizers(languages=["de"])
         registry.add_recognizer(tax_id)
         registry.add_recognizer(password)
@@ -258,7 +264,7 @@ def step3_redact_de(text: str | None) -> str | None:
     try:
         from presidio_anonymizer.entities import OperatorConfig
         analyzer, anonymizer = _get_presidio_de()
-        DE_ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE", "TAX_ID", "PASSWORD"]
+        DE_ENTITIES = ["PHONE_NUMBER", "IBAN_CODE", "TAX_ID", "PASSWORD"]
         results = analyzer.analyze(text=text, language="de", entities=DE_ENTITIES)
         counts: dict[str, int] = {}
         for r in results:
@@ -320,7 +326,7 @@ def step5_redact_en(text: str | None) -> str | None:
     try:
         from presidio_anonymizer.entities import OperatorConfig
         analyzer, anonymizer = _get_presidio_en()
-        EN_ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE"]
+        EN_ENTITIES = ["PHONE_NUMBER", "IBAN_CODE"]
         results = analyzer.analyze(text=text, language="en", entities=EN_ENTITIES)
         counts: dict[str, int] = {}
         for r in results:
@@ -406,11 +412,14 @@ def _parse_claude_output(text: str) -> tuple[str, str]:
 
 def _make_styles() -> dict:
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    from reportlab.pdfbase.ttfonts import TTFont
+    pdfmetrics.registerFont(TTFont("NotoEmoji", "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf"))
     return {
         "h1":       ParagraphStyle("h1",       fontName="Helvetica-Bold", fontSize=16, spaceAfter=6),
         "h2":       ParagraphStyle("h2",       fontName="Helvetica-Bold", fontSize=12, spaceAfter=4),
+        "h2_cjk":  ParagraphStyle("h2_cjk",  fontName="STSong-Light",   fontSize=12, spaceAfter=4),
         "body":     ParagraphStyle("body",     fontName="Helvetica",      fontSize=10, leading=14),
-        "body_cjk": ParagraphStyle("body_cjk", fontName="STSong-Light",   fontSize=10, leading=14),
+        "body_cjk": ParagraphStyle("body_cjk", fontName="STSong-Light",   fontSize=10, leading=20),
     }
 
 
@@ -418,13 +427,39 @@ def _clean_line(line: str) -> str:
     return re.sub(r'\*+([^*]+)\*+', r'\1', line)  # strip **bold** and *italic*
 
 
+def _has_cjk(text: str) -> bool:
+    return any('\u4e00' <= c <= '\u9fff' for c in text)
+
+
+EMOJI_RE = re.compile(
+    "[\U0001F300-\U0001FFFF\U00002600-\U000027BF\U0000FE00-\U0000FE0F]+")
+
+
+def _encode_emoji(text: str) -> str:
+    text = text.replace('⚠️', '[URGENT]').replace('🔴', '[HIGH]').replace('📅', '[DATE]').replace('🔗', '[LINK]')
+    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    return EMOJI_RE.sub(lambda m: f'<font name="NotoEmoji">{m.group()}</font>', text)
+
+
+def _normalize_for_cjk(text: str) -> str:
+    return text.replace("ß", "ss").replace("ä", "ae").replace("ö", "oe") \
+               .replace("ü", "ue").replace("Ä", "Ae").replace("Ö", "Oe").replace("Ü", "Ue")
+
+
 def _text_to_flowables(content: str, title: str, styles: dict) -> list:
     flowables = [Paragraph(title, styles["h1"]), Spacer(1, 6*mm)]
     for line in content.splitlines():
         if line.startswith("## "):
-            flowables += [Spacer(1, 4*mm), Paragraph(_clean_line(line[3:]), styles["h2"])]
+            cleaned_h2 = _encode_emoji(_clean_line(line[3:]))
+            h2_style = styles["h2_cjk"] if _has_cjk(cleaned_h2) else styles["h2"]
+            flowables += [Spacer(1, 4*mm), Paragraph(cleaned_h2, h2_style)]
         elif line.strip():
-            flowables.append(Paragraph(_clean_line(line), styles["body"]))
+            cleaned = _clean_line(line)
+            encoded = _encode_emoji(cleaned)
+            if _has_cjk(cleaned):
+                flowables.append(Paragraph(_normalize_for_cjk(encoded), styles["body_cjk"]))
+            else:
+                flowables.append(Paragraph(encoded, styles["body"]))
     return flowables
 
 
