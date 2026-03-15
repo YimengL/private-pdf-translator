@@ -65,9 +65,11 @@ OUTPUT_FILE="proc_${INPUT_FILE#ori_}"
 
 # 6. Run pipeline
 echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"
+mkdir -p "$HOME/.german-mail"
 docker run --rm \
     -e ANTHROPIC_API_KEY="$API_KEY" \
     -e OLLAMA_HOST=http://host.docker.internal:11434 \
     -v "$INPUT_DIR:/data" \
+    -v "$HOME/.german-mail:/root/.german-mail" \
     german-mail-pipeline \
     python3 pipeline.py "/data/$INPUT_FILE" "/data/$OUTPUT_FILE"
