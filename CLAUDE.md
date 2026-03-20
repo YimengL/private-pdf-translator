@@ -36,12 +36,13 @@ translate.sh → Docker → pipeline.py
   Step 5: Presidio        — redact English text
   Step 6: Claude API      — analyse redacted text (prompt.md or prompt_en.md)
   Step 7: PDF assembly    — summary + DeepL translation + OCR German if German
+  Step 8: Sidecar JSON   — proc_filename.json alongside PDF (contract for home-server)
 ```
 
 ## Tech Stack
 
 - Python 3.12, Docker Desktop
-- Tesseract (`lang=deu`, `--psm 1`)
+- Tesseract (`lang=deu`, `--psm 1 --oem 1`)
 - DeepL free API (translation)
 - langdetect (language detection)
 - Microsoft Presidio (PII redaction — active)
@@ -51,9 +52,10 @@ translate.sh → Docker → pipeline.py
 
 ## Secrets
 
-API key in Mac Keychain only:
+API keys in Mac Keychain only:
 ```bash
 security add-generic-password -a "$USER" -s "anthropic-german-mail" -w "sk-ant-xxxxx"
+security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-key"
 ```
 Use Bitwarden as source of truth across Macs.
 
