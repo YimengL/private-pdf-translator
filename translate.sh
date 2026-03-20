@@ -43,12 +43,21 @@ if ! docker info > /dev/null 2>&1; then
     done
 fi
 
-# 4. Retrieve API key from Mac Keychain
+# 4.a Retrieve Anthropic API key from Mac Keychain
 API_KEY=$(security find-generic-password \
     -a "$USER" -s "anthropic-german-mail" -w 2>/dev/null || true)
 if [ -z "$API_KEY" ]; then
     echo "❌ API key not found in Keychain. Run:"
     echo "   security add-generic-password -a \"\$USER\" -s \"anthropic-german-mail\" -w \"sk-ant-xxxxx\""
+    exit 1
+fi
+
+# 4.b Retrieve DeepL API key from Mac Keychain
+DEEPL_KEY=$(security find-generic-password \
+    -a "$USER" -s "deepl-german-mail" -w 2>/dev/null || true)
+if [ -z "$DEEPL_KEY" ]; then
+    echo "❌ API key not found in Keychain. Run:"
+    echo "   security add-generic-password -a \"\$USER\" -s \"deepl-german-mail\" -w \"your-key\""
     exit 1
 fi
 
@@ -68,7 +77,7 @@ echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"
 mkdir -p "$HOME/.german-mail"
 docker run --rm \
     -e ANTHROPIC_API_KEY="$API_KEY" \
-    -e OLLAMA_HOST=http://host.docker.internal:11434 \
+    -e DEEPL_API_KEY="$DEEPL_KEY" \
     -v "$INPUT_DIR:/data" \
     -v "$HOME/.german-mail:/root/.german-mail" \
     german-mail-pipeline \

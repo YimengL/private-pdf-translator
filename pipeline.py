@@ -8,7 +8,7 @@ from pathlib import Path
 
 import anthropic
 import fitz  # pymupdf
-import ollama
+import deepl
 import pytesseract
 from PIL import Image
 from reportlab.lib import colors
@@ -24,9 +24,7 @@ log = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 REDACTION_IMPLEMENTED = True    # Presidio PII redaction active
-OLLAMA_HOST           = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-TRANSLATE_MODEL       = "translategemma:4b"
-TRANSLATE_TIMEOUT     = 300     # seconds per page
+TRANSLATE_MODEL       = "DeepL"
 MAX_LONG_SIDE         = 3508    # ~A4 at 300 DPI
 SUPPORTED_IMAGES      = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 PROMPT_PATH           = Path(__file__).parent / "prompt.md"
@@ -46,7 +44,7 @@ def main(input_pdf: str, output_pdf: str) -> None:
     if is_english:
         log.info("  Detected English document — skipping local translation")
     german_redacted  = None if is_english else step3_redact_de(raw_german)
-    local_english    = None if is_english else step4_local_translate(raw_german)
+    local_english    = None if is_english else step4_deepl_translate(german_redacted)
     english_redacted = step5_redact_en(raw_german if is_english else local_english)
     claude_output    = step6_claude(german_redacted, english_redacted, conf, is_english)
     step7_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
@@ -285,36 +283,21 @@ def step3_redact_de(text: str | None) -> str | None:
         return None
 
 
-# ── Step 4: Local translation (translategemma vision) ───────────────────────
-def step4_local_translate(raw_german: str | None) -> str | None:
-    log.info("Step 4: Local translation (translategemma)")
-    if raw_german is None:
+# ── Step 4: DeepL translation ───────────────────────────────────────────────
+def step4_deepl_translate(text: str | None) -> str | None:
+    log.info("Step 4: DeepL translation")
+    if text is None:
         log.warning("  Skipping — no OCR text")
         return None
     try:
-        client = ollama.Client(host=OLLAMA_HOST, timeout=TRANSLATE_TIMEOUT)
-        models = client.list()
-        cached = any(TRANSLATE_MODEL in m.model for m in models.models)
-        if cached:
-            log.info(f"  Using cached {TRANSLATE_MODEL} — run 'ollama pull {TRANSLATE_MODEL}' to update")
-        else:
-            log.info(f"  Downloading {TRANSLATE_MODEL} (first time, please wait)...")
-            client.pull(TRANSLATE_MODEL)
-            log.info(f"  Download complete")
-
-        response = client.chat(
-            model=TRANSLATE_MODEL,
-            messages=[{
-                "role": "user",
-                "content": f"Translate every word of the following German text to English. Keep legal citations (§ numbers, law abbreviations like StVO, StVG, BKat, OWiG) exactly as they appear in German. Do not summarise or skip any content. Output a complete word-for-word translation.\n\n{raw_german}"
-            }],
-            options={"num_predict": 4096}
-        )
-        result = response.message.content
+        api_key = os.getenv("DEEPL_API_KEY")
+        translator = deepl.Translator(api_key)
+    
+        result = translator.translate_text(text, target_lang="EN-US").text
         log.info(f"  Translation: {len(result)} characters")
         return result
     except Exception as e:
-        log.warning(f"Step 4 FAILED: {e} — skipping local translation")
+        log.warning(f"Step 4 FAILED: {e} — skipping translation")
         return None
 
 
@@ -514,7 +497,7 @@ def step7_build_pdf(output_pdf: str, raw_german: str | None,
                 if story:
                     story.append(PageBreak())
                 story += _text_to_flowables(
-                    local_english, "Local LLM Translation (translategemma)", styles)
+                    local_english, "DeepL Translation", styles)
 
             if raw_german:
                 if story:

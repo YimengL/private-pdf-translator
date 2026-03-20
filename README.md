@@ -1,30 +1,19 @@
 # German Mail Pipeline
 
 Processes scanned German mail (PDF or photo) into a structured output PDF. Uses Tesseract OCR,
-Presidio PII redaction, translategemma:4b (local LLM) for a best-effort translation, and
-Claude AI (claude-sonnet-4-6) to translate and analyse the redacted content.
+Presidio PII redaction, DeepL free API for translation, and
+Claude AI (claude-sonnet-4-6) to analyse the redacted content.
 
 ![Sample output](sample_output.jpg)
-
-## Troubleshooting
-
-**`model failed to load` / llama runner crash**
-Homebrew's Ollama (`brew install ollama`) may be behind the version required by translategemma. Install directly from ollama.com instead:
-```bash
-brew uninstall ollama
-curl -fsSL https://ollama.com/install.sh | sh
-```
-The install script sets up Ollama as a background service that starts at login automatically.
-
----
 
 ## Prerequisites
 
 - Docker Desktop (running)
-- Mac Keychain entry for your Anthropic API key:
+- Mac Keychain entries:
 
 ```bash
 security add-generic-password -a "$USER" -s "anthropic-german-mail" -w "sk-ant-xxxxx"
+security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-key"
 ```
 
 ## Install
@@ -56,7 +45,7 @@ Also accepts image files: `.jpg`, `.jpeg`, `.png`, `.tiff`
 Page 1        Summary — importance score, type, sender, deadline, action points,
                         key info (EN + 中文), sensitive info
 Page 2–x      Claude full translation
-Page x–y      translategemma translation
+Page x–y      DeepL translation
 Page y–z      OCR German (for verification)
 ```
 
@@ -73,7 +62,6 @@ PII redacted before any text reaches Claude:
 
 ## Known limitations
 
-- Local LLM (translategemma 4b) hallucination on dense legal text — Claude output is reliable, local translation is best-effort
 - CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
 - English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
 - Image input (.jpg, .png etc.) — code path exists but untested
