@@ -32,17 +32,17 @@ translate.sh → Docker → pipeline.py
   Step 2: Tesseract OCR   — images → text + confidence
   Step 2b: langdetect     — detect language → is_english flag
   Step 3: Presidio        — redact German text (skipped for English input)
-  Step 4: translategemma  — German text → English translation (skipped for English input)
+  Step 4: DeepL API       — German text → English translation (skipped for English input)
   Step 5: Presidio        — redact English text
   Step 6: Claude API      — analyse redacted text (prompt.md or prompt_en.md)
-  Step 7: PDF assembly    — summary + Claude translation [+ local translation + OCR German if German]
+  Step 7: PDF assembly    — summary + DeepL translation + OCR German if German
 ```
 
 ## Tech Stack
 
 - Python 3.12, Docker Desktop
 - Tesseract (`lang=deu`, `--psm 1`)
-- translategemma via Ollama (text-to-text, local)
+- DeepL free API (translation)
 - langdetect (language detection)
 - Microsoft Presidio (PII redaction — active)
 - Claude API `claude-sonnet-4-6`
