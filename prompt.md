@@ -9,7 +9,7 @@ You are given:
 1. OCR-extracted German text (PII redacted):
 {german_redacted}
 
-2. Local LLM English translation (PII redacted):
+2. DeepL English translation (PII redacted):
 {english_redacted}
 
 Respond in exactly this structure:
@@ -34,14 +34,14 @@ Same in Simplified Chinese (简体中文).
 ## SENSITIVE INFO
 Types of PII found (do not reproduce values). Write "None" if clean.
 
-## LOCAL LLM QUALITY
-[0-100] — one-line assessment of the local translation quality.
+## DEEPL TRANSLATION QUALITY
+[0-100] — one-line assessment of the DeepL translation quality. 
 
 ## DISAGREEMENTS
 Only flag differences where meaning or action could be affected.
 For each:
 [Page X] Original German sentence
-Claude: "..." | Local: "..."
+Claude: "..." | DeepL: "..."
 Why it matters: ...
 Skip synonyms and stylistic variations.
 
