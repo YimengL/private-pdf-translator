@@ -34,6 +34,11 @@ Same in Simplified Chinese (简体中文).
 ## SENSITIVE INFO
 Types of PII found (do not reproduce values). Write "None" if clean.
 
+## SELF EVALUATION
+Action found: yes / no / none required
+Key details confident: yes / partial / no
+If partial or no: what was unclear or missing (amounts, dates, sender, deadlines)
+
 ## DEEPL TRANSLATION QUALITY
 [0-100] — one-line assessment of the DeepL translation quality. 
 
