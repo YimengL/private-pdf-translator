@@ -133,22 +133,24 @@ def step2_ocr(images: list | None) -> tuple[str | None, float]:
         log.warning("  Skipping — no images")
         return None, 0.0
     try:
-        pages, confidences = [], []
+        pages, page_confs = [], []
         for i, img in enumerate(images, 1):
             log.info(f"  OCR page {i}/{len(images)}")
             data = pytesseract.image_to_data(img, lang="deu",
                                              config="--psm 1 --oem 1",
                                              output_type=pytesseract.Output.DICT)
             confs = [c for c in data["conf"] if c != -1]
-            confidences.extend(confs)
+            page_confs.append(sum(confs) / len(confs) if confs else 0.0)
+            log.info(f"  Page {i} confidence: {page_confs[-1]:.0f}%")
             text = pytesseract.image_to_string(img, lang="deu", config="--psm 1 --oem 1")
             pages.append(text)
 
-        avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+        key_confs = page_confs[:2]
+        avg_conf = sum(key_confs) / len(key_confs) if key_confs else 0.0
         if avg_conf < OCR_CONFIDENCE_WARN:
-            log.warning(f"  ⚠️  Low OCR confidence: {avg_conf:.0f}% — translation may be unreliable")
+            log.warning(f"  ⚠️  Low OCR confidence (pages 1-2): {avg_conf:.0f}% — translation may be unreliable")
         else:
-            log.info(f"  OCR confidence: {avg_conf:.0f}%")
+            log.info(f"  OCR confidence (pages 1-2): {avg_conf:.0f}%")
 
         result = _clean_ocr_text("\n\n---\n\n".join(pages))
         log.info(f"  Extracted {len(result)} characters")
