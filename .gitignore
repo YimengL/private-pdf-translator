@@ -4,3 +4,4 @@ output/
 __pycache__/
 .idea/
 HANDOVER.md
+.DS_Store

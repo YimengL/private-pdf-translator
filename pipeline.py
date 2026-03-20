@@ -49,7 +49,7 @@ def main(input_pdf: str, output_pdf: str) -> None:
     local_english    = None if is_english else step4_local_translate(raw_german)
     english_redacted = step5_redact_en(raw_german if is_english else local_english)
     claude_output    = step6_claude(german_redacted, english_redacted, conf, is_english)
-    step7_build_pdf(output_pdf, raw_german, local_english, claude_output, is_english)
+    step7_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
     update_index(input_pdf, claude_output)
 
 
@@ -139,11 +139,11 @@ def step2_ocr(images: list | None) -> tuple[str | None, float]:
         for i, img in enumerate(images, 1):
             log.info(f"  OCR page {i}/{len(images)}")
             data = pytesseract.image_to_data(img, lang="deu",
-                                             config="--psm 1",
+                                             config="--psm 1 --oem 1",
                                              output_type=pytesseract.Output.DICT)
             confs = [c for c in data["conf"] if c != -1]
             confidences.extend(confs)
-            text = pytesseract.image_to_string(img, lang="deu", config="--psm 1")
+            text = pytesseract.image_to_string(img, lang="deu", config="--psm 1 --oem 1")
             pages.append(text)
 
         avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
@@ -483,13 +483,25 @@ def _text_to_flowables(content: str, title: str, styles: dict) -> list:
     return flowables
 
 
+def _build_metadata_block(ocr_confidence: float, is_english: bool, styles) -> list:
+    lines = [
+        f"OCR: Tesseract deu  |  confidence: {ocr_confidence:.0f}%",
+        f"Translation: {TRANSLATE_MODEL}" if not is_english else "Translation: N/A (English input)",
+        f"Analysis: claude-sonnet-4-6",
+    ]
+    text = "\n".join(lines)
+    return _text_to_flowables(text, "Processing Info", styles)
+
+
 def step7_build_pdf(output_pdf: str, raw_german: str | None,
                     local_english: str | None, claude_output: str | None,
+                    ocr_confidence: float = 0.0,
                     is_english: bool = False) -> None:
     log.info("Step 7: Build output PDF")
     try:
         styles = _make_styles()
         story  = []
+        story += _build_metadata_block(ocr_confidence, is_english, styles)
 
         if claude_output:
             summary, translation = _parse_claude_output(claude_output)
