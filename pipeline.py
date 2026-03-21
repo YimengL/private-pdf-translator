@@ -46,8 +46,9 @@ def main(input_pdf: str, output_pdf: str) -> None:
     german_redacted  = None if is_english else step3_redact_de(raw_german)
     local_english    = None if is_english else step4_deepl_translate(german_redacted)
     english_redacted = step5_redact_en(raw_german if is_english else local_english)
-    claude_output    = step6_claude(german_redacted, english_redacted, conf, is_english)
+    claude_output, claude_usage    = step6_claude(german_redacted, english_redacted, conf, is_english)
     step7_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
+    step8_write_sidecar(output_pdf, input_pdf, claude_output, conf, claude_usage)
     update_index(input_pdf, claude_output)
 
 
@@ -366,17 +367,17 @@ def _log_cost(usage) -> None:
 
 
 def step6_claude(german_redacted: str | None, english_redacted: str | None,
-                 ocr_confidence: float, is_english: bool = False) -> str | None:
+                 ocr_confidence: float, is_english: bool = False) -> tuple[str | None, dict | None]:
     log.info("Step 6: Claude API analysis")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Skipping — PII redaction not yet implemented. No unredacted text sent to cloud.")
-        return None
+        return None, None
     if english_redacted is None:
         log.warning("  Skipping — missing redacted input")
-        return None
+        return None, None
     if not is_english and german_redacted is None:
         log.warning("  Skipping — missing redacted input")
-        return None
+        return None, None
     try:
         prompt_path = PROMPT_EN_PATH if is_english else PROMPT_PATH
         fmt_args = dict(ocr_confidence=f"{ocr_confidence:.0f}", index_context=_load_index_context())
@@ -396,7 +397,13 @@ def step6_claude(german_redacted: str | None, english_redacted: str | None,
                 )
                 result = message.content[0].text
                 _log_cost(message.usage)
-                return result
+                usage_dict = {
+                    "tokens_in": message.usage.input_tokens,
+                    "tokens_out": message.usage.output_tokens,
+                    "cost_usd": round((message.usage.input_tokens / 1_000_000 * 3.0) +
+                    (message.usage.output_tokens / 1_000_000 * 15.0), 4),
+                }
+                return result, usage_dict
             except Exception as e:
                 if attempt == 2:
                     raise
@@ -536,6 +543,86 @@ def _save_fallback_text(output_pdf: str, local_english: str | None,
 def _extract_field(text: str, header: str) -> str:
     match = re.search(rf"## {header}\n(.+)", text)
     return match.group(1).strip() if match else "unknown"
+
+
+def _parse_int(pattern: str, text: str) -> int | None:
+    m = re.search(pattern, text)
+    return int(m.group(1)) if m else None
+
+
+def _parse_date(text: str) -> str | None:
+    m = re.search(r'(\d{4}-\d{2}-\d{2})', text)
+    return m.group(1) if m else None
+
+
+# ── Step 8: Write sidecar JSON ───────────────────────────────────────────────
+def step8_write_sidecar(output_pdf: str, input_pdf: str,
+                        claude_output: str | None,
+                        ocr_confidence: float,
+                        claude_usage: dict | None) -> None:
+    log.info("Step 8: Write sidecar JSON")
+    try:
+        out_path = Path(output_pdf)
+        data: dict = {
+            "schema_version": 1,
+            "filename": out_path.name,
+            "original_filename": Path(input_pdf).name,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "ocr_confidence": round(ocr_confidence),
+            "model": "claude-sonnet-4-6",
+        }
+        if claude_usage:
+            data["tokens_in"] = claude_usage["tokens_in"]
+            data["tokens_out"] = claude_usage["tokens_out"]
+            data["cost_usd"] = claude_usage["cost_usd"]
+        if claude_output:
+            sender_line = _extract_field(claude_output, "SENDER")
+            parts = sender_line.split("|")
+            sender = parts[0].strip()
+            reference = parts[1].strip().replace("Ref:", "").strip() if len(parts) > 1 else None
+            doc_type = _extract_field(claude_output, "TYPE")
+
+            if sender and sender != "unknown":
+                data["sender"] = sender
+            if reference and reference != "unknown":
+                data["reference"] = reference
+            if doc_type and doc_type != "unknown":
+                data["type"] = doc_type
+            
+            issued = _parse_date(_extract_field(claude_output, "ISSUED"))
+            deadline = _parse_date(_extract_field(claude_output, "DEADLINE"))
+            amount = _extract_field(claude_output, "AMOUNT")
+
+            if issued:
+                data["issued"] = issued
+            if deadline:
+                data["deadline"] = deadline
+            if amount and amount != "unknown":
+                data["amount"] = amount
+
+            importance = _parse_int(r'(\d+)/100', claude_output)
+            claude_conf = _parse_int(r'Key details confident:\s*\[?(\d+)\]?', claude_output)
+            deepl_score = _parse_int(r'## DEEPL TRANSLATION QUALITY\s*\n\[?(\d+)\]?', claude_output)
+
+            if importance is not None:
+                data["importance"] = importance
+            if claude_conf is not None:
+                data["claude_confidence"] = claude_conf
+            if deepl_score is not None:
+                data["deepl_score"] = deepl_score
+            action_items = []
+            m = re.search(r'Action points:\n((?:- .+\n?)+)', claude_output)
+            if m:
+                for line in m.group(1).strip().splitlines():
+                    if line.strip().startswith("- "):
+                        action_items.append(line.strip()[2:].split(" — ")[0].strip())
+                if action_items:
+                    data["action_items"] = action_items
+        sidecar = out_path.with_suffix(".json")
+        sidecar.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info(f"  ✅ Sidecar written: {sidecar.name}")  
+    except Exception as e:
+        log.warning(f"Step 8 FAILED: {e}")
 
 
 def update_index(input_pdf: str, claude_output: str | None) -> None:
