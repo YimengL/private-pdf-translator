@@ -570,6 +570,8 @@ def step8_write_sidecar(output_pdf: str, input_pdf: str,
             "date": datetime.now().strftime("%Y-%m-%d"),
             "ocr_confidence": round(ocr_confidence),
             "model": "claude-sonnet-4-6",
+            "force_retranslate": False,
+            "force_reingest": False,
         }
         if claude_usage:
             data["tokens_in"] = claude_usage["tokens_in"]
@@ -618,6 +620,10 @@ def step8_write_sidecar(output_pdf: str, input_pdf: str,
                         action_items.append(line.strip()[2:].split(" — ")[0].strip())
                 if action_items:
                     data["action_items"] = action_items
+
+            summary_short = _extract_field(claude_output, "SUMMARY_SHORT")
+            if summary_short and summary_short != "unknown":
+                data["summary_short"] = summary_short
         sidecar = out_path.with_suffix(".json")
         sidecar.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info(f"  ✅ Sidecar written: {sidecar.name}")  
