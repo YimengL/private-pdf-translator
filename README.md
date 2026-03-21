@@ -66,6 +66,14 @@ PII redacted before any text reaches Claude:
 - English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
 - Image input (.jpg, .png etc.) — code path exists but untested
 
+## Sidecar JSON
+
+Every processed file produces a `proc_filename.json` alongside the PDF. This is the contract for downstream automation (DB write, R2 upload, Telegram notification).
+
+Fields: `schema_version`, `filename`, `original_filename`, `date`, `issued`*, `sender`, `reference`*, `type`, `importance`, `amount`*, `deadline`*, `action_items`, `ocr_confidence`, `deepl_score`*, `claude_confidence`, `tokens_in`, `tokens_out`, `cost_usd`, `model`
+
+*optional — omitted if not found or uncertain
+
 ## Local data
 
 - `~/.german-mail/index.json` — processed document history
