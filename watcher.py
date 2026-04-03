@@ -1,10 +1,11 @@
 import logging
 import signal
+import threading
 from pathlib import Path
 import os
 
 from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileSystemEventHandler
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 import pipeline
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ class PDFHandler(FileSystemEventHandler):
         
         output_path = pipeline.derive_output_path(path)
         logger.info("New PDF detected, translating: %s -> %s", path.name, output_path.name)
-        pipeline.main(str(path), str(output_path))
+        threading.Thread(target=pipeline.main, args=(str(path), str(output_path)), daemon=True).start()
     
 
     def on_created(self, event: FileCreatedEvent) -> None:
@@ -46,7 +47,7 @@ def start(folder: str) -> None:
         raise ValueError(f"Watch folder does not exist: {watch_path}")
     
     handler = PDFHandler()
-    observer = Observer()
+    observer = PollingObserver()
     observer.schedule(handler, str(watch_path), recursive=True)
     logger.info("Watching for PDFs: %s", watch_path)
     observer.start()

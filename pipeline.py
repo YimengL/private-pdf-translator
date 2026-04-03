@@ -32,7 +32,6 @@ MAX_LONG_SIDE         = 3508    # ~A4 at 300 DPI
 SUPPORTED_IMAGES      = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 PROMPT_PATH           = Path(__file__).parent / "prompt.md"
 PROMPT_EN_PATH        = Path(__file__).parent / "prompt_en.md"
-INDEX_PATH            = Path.home() / ".german-mail" / "index.json"
 OCR_CONFIDENCE_WARN   = 70.0    # % below which we flag low confidence
 
 
@@ -51,7 +50,6 @@ def main(input_pdf: str, output_pdf: str) -> None:
     claude_output, claude_usage    = step5_claude(german_redacted, english_redacted, conf, is_english)
     step6_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
     step7_write_sidecar(output_pdf, input_pdf, claude_output, conf, claude_usage)
-    update_index(input_pdf, claude_output)
 
 
 # ── Step 1: Load input ───────────────────────────────────────────────────────
@@ -324,16 +322,6 @@ def step4_redact_en(text: str | None) -> str | None:
 
 
 # ── Step 5: Claude API ───────────────────────────────────────────────────────
-def _load_index_context() -> str:
-    if not INDEX_PATH.exists():
-        return "No previous documents."
-    entries = json.loads(INDEX_PATH.read_text())
-    return "\n".join(
-        f"- {e['filename']} ({e['date']}) | {e['type']} | {e['sender']} | Ref: {e['reference']}"
-        for e in entries[-20:]
-    )
-
-
 def _detect_language(text: str | None) -> bool:
     """Returns True if document is predominantly English."""
     if not text:
@@ -350,10 +338,6 @@ def _log_cost(usage) -> None:
     output_cost = usage.output_tokens / 1_000_000 * 15.0
     total = input_cost + output_cost
     log.info(f"  Tokens: {usage.input_tokens} in / {usage.output_tokens} out — ${total:.4f}")
-    cost_log = Path.home() / ".german-mail" / "costs.log"
-    cost_log.parent.mkdir(parents=True, exist_ok=True)
-    with open(cost_log, "a") as f:
-        f.write(f"{datetime.now().isoformat()} | in={usage.input_tokens} out={usage.output_tokens} cost=${total:.4f}\n")
 
 
 def step5_claude(german_redacted: str | None, english_redacted: str | None,
@@ -370,7 +354,7 @@ def step5_claude(german_redacted: str | None, english_redacted: str | None,
         return None, None
     try:
         prompt_path = PROMPT_EN_PATH if is_english else PROMPT_PATH
-        fmt_args = dict(ocr_confidence=f"{ocr_confidence:.0f}", index_context=_load_index_context())
+        fmt_args = dict(ocr_confidence=f"{ocr_confidence:.0f}")
         if is_english:
             fmt_args["english_redacted"] = english_redacted
         else:
@@ -609,28 +593,6 @@ def step7_write_sidecar(output_pdf: str, input_pdf: str,
     except Exception as e:
         log.warning(f"Step 7 FAILED: {e}")
 
-
-def update_index(input_pdf: str, claude_output: str | None) -> None:
-    if claude_output is None:
-        return
-    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    sender_line = _extract_field(claude_output, "SENDER")
-    parts       = sender_line.split("|")
-    sender      = parts[0].strip() if parts else "unknown"
-    reference   = parts[1].strip().replace("Ref:", "").strip() if len(parts) > 1 else "unknown"
-
-    entry = {
-        "filename":  Path(input_pdf).name,
-        "date":      datetime.now().strftime("%Y-%m-%d"),
-        "type":      _extract_field(claude_output, "TYPE"),
-        "sender":    sender,
-        "reference": reference,
-        "deadline":  _extract_field(claude_output, "DEADLINE"),
-    }
-    entries = json.loads(INDEX_PATH.read_text()) if INDEX_PATH.exists() else []
-    entries.append(entry)
-    INDEX_PATH.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
-    log.info(f"  Index updated: {entry['sender']} | {entry['reference']}")
 
 
 def derive_output_path(input_path: Path) -> Path:

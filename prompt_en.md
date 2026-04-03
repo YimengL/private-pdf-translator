@@ -2,9 +2,6 @@ You are processing a scanned English document.
 
 OCR confidence: {ocr_confidence}%
 
-Recent processed documents (for historical linking):
-{index_context}
-
 You are given OCR-extracted English text (PII redacted):
 {english_redacted}
 
@@ -16,7 +13,6 @@ Respond in exactly this structure:
 Type: <one of: invoice / legal notice / insurance / bank / government / other>
 From: <Organisation name> | Ref: <reference number or "none">
 Deadline: 📅 YYYY-MM-DD — what it is  (omit this line if no deadline)
-Related: 🔗 [filename] ([date]) — why related  (omit this line if none)
 
 Action points:
 - [action] — [why it matters] ⚠️ if urgent

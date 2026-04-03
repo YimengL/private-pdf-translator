@@ -59,7 +59,3 @@ security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-k
 ```
 Use Bitwarden as source of truth across Macs.
 
-## Local Data (off-repo)
-
-- `~/.german-mail/index.json` — document history
-- `~/.german-mail/costs.log` — API cost log

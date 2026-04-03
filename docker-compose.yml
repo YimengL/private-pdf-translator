@@ -1,0 +1,9 @@
+services:
+  watch:
+    image: german-mail-pipeline
+    command: watch /data
+    volumes:
+      - ${HOME}/gdrive/mail_in:/data
+    environment:
+      - ANTHROPIC_API_KEY
+      - DEEPL_API_KEY

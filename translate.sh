@@ -72,11 +72,9 @@ OUTPUT_FILE="proc_${INPUT_FILE#ori_}"
 
 # 6. Run pipeline
 echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"
-mkdir -p "$HOME/.german-mail"
 docker run --rm \
     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
     -e DEEPL_API_KEY="$DEEPL_API_KEY" \
     --mount "type=bind,source=${INPUT_DIR},target=/data" \
-    -v "$HOME/.german-mail:/root/.german-mail" \
     german-mail-pipeline \
     translate "/data/$INPUT_FILE"
