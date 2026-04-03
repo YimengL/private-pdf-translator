@@ -43,21 +43,19 @@ if ! docker info > /dev/null 2>&1; then
     done
 fi
 
-# 4.a Retrieve Anthropic API key from Mac Keychain
-API_KEY=$(security find-generic-password \
-    -a "$USER" -s "anthropic-german-mail" -w 2>/dev/null || true)
-if [ -z "$API_KEY" ]; then
-    echo "❌ API key not found in Keychain. Run:"
-    echo "   security add-generic-password -a \"\$USER\" -s \"anthropic-german-mail\" -w \"sk-ant-xxxxx\""
-    exit 1
+# 4. Resolve secrets — env var → Doppler (if available) → Mac Keychain
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && command -v doppler &>/dev/null; then
+    ANTHROPIC_API_KEY=$(doppler secrets get ANTHROPIC_API_KEY --plain 2>/dev/null || true)
 fi
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$(security find-generic-password -a "$USER" -s "anthropic-german-mail" -w 2>/dev/null || true)}"
 
-# 4.b Retrieve DeepL API key from Mac Keychain
-DEEPL_KEY=$(security find-generic-password \
-    -a "$USER" -s "deepl-german-mail" -w 2>/dev/null || true)
-if [ -z "$DEEPL_KEY" ]; then
-    echo "❌ API key not found in Keychain. Run:"
-    echo "   security add-generic-password -a \"\$USER\" -s \"deepl-german-mail\" -w \"your-key\""
+if [ -z "${DEEPL_API_KEY:-}" ] && command -v doppler &>/dev/null; then
+    DEEPL_API_KEY=$(doppler secrets get DEEPL_API_KEY --plain 2>/dev/null || true)
+fi
+DEEPL_API_KEY="${DEEPL_API_KEY:-$(security find-generic-password -a "$USER" -s "deepl-german-mail" -w 2>/dev/null || true)}"
+
+if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$DEEPL_API_KEY" ]; then
+    echo "❌ API keys not found. Set via env var, Doppler, or Mac Keychain."
     exit 1
 fi
 
@@ -76,9 +74,9 @@ OUTPUT_FILE="proc_${INPUT_FILE#ori_}"
 echo "🚀 Starting pipeline: $INPUT_FILE → $OUTPUT_FILE"
 mkdir -p "$HOME/.german-mail"
 docker run --rm \
-    -e ANTHROPIC_API_KEY="$API_KEY" \
-    -e DEEPL_API_KEY="$DEEPL_KEY" \
-    -v "$INPUT_DIR:/data" \
+    -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+    -e DEEPL_API_KEY="$DEEPL_API_KEY" \
+    --mount "type=bind,source=${INPUT_DIR},target=/data" \
     -v "$HOME/.german-mail:/root/.german-mail" \
     german-mail-pipeline \
-    python3 pipeline.py "/data/$INPUT_FILE" "/data/$OUTPUT_FILE"
+    translate "/data/$INPUT_FILE"
