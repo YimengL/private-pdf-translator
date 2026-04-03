@@ -13,13 +13,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Processes scanned German mail (PDF or phone photo) into an output PDF with local AI translation and Claude AI analysis.
 
-## Entry Point
+## Entry Points
 
 ```bash
-translate ~/path/to/ori_2024_001_mail.pdf
+# One-shot translate
+translate ~/gdrive/mail_in/ori_letter.pdf
+
+# Watch mode (daemon)
+cd ~/git/private-pdf-translator
+doppler run -- docker compose up
 ```
 
-- `translate` → `/usr/local/bin/translate` (from `translate.sh`)
+- `translate` → `/usr/local/bin/translate` (symlink to `translate.sh`)
+- Watch folder: `~/gdrive/mail_in/` — monitors for `ori_*.pdf` files
 - Input: any file not prefixed `proc_` (strips `ori_` if present)
 - Output: prefixed `proc_`, saved in same folder
 - Also accepts: `.jpg`, `.jpeg`, `.png`, `.tiff`
@@ -27,35 +33,36 @@ translate ~/path/to/ori_2024_001_mail.pdf
 ## Architecture
 
 ```
-translate.sh → Docker → pipeline.py
-  Step 1: pdf2image       — PDF/image → PIL images
-  Step 2: Tesseract OCR   — images → text + confidence
-  Step 2b: langdetect     — detect language → is_english flag
-  Step 3: Presidio        — redact German text (skipped for English input)
-  Step 4: DeepL API       — German text → English translation (skipped for English input)
-  Step 5: Presidio        — redact English text
-  Step 6: Claude API      — analyse redacted text (prompt.md or prompt_en.md)
-  Step 7: PDF assembly    — summary + DeepL translation + OCR German if German
-  Step 8: Sidecar JSON   — proc_filename.json alongside PDF (contract for home-server)
+translate.sh / docker-compose.yml → Docker → pipeline.py
+  Step 1: OCR (page-by-page)  — PDF/image → text + confidence (streaming, low memory)
+  Step 2: Presidio             — redact German text (skipped for English input)
+  Step 3: DeepL API            — German text → English translation (skipped for English input)
+  Step 4: Presidio             — redact English text
+  Step 5: Claude API           — analyse redacted text (prompt.md or prompt_en.md)
+  Step 6: PDF assembly         — summary + DeepL translation + OCR German (if German input)
+  Step 7: Sidecar JSON         — proc_filename.json alongside PDF (contract for home-automation)
 ```
 
 ## Tech Stack
 
 - Python 3.12, Docker Desktop
 - Tesseract (`lang=deu`, `--psm 1 --oem 1`)
-- DeepL free API (translation)
+- DeepL API (translation)
 - langdetect (language detection)
 - Microsoft Presidio (PII redaction — active)
 - Claude API `claude-sonnet-4-6`
-- reportlab + STSong-Light (CJK), pypdf
+- reportlab + STSong-Light (CJK)
 - `prompt.md` / `prompt_en.md` — Claude prompt templates (edit to tune without touching pipeline.py)
 
 ## Secrets
 
-API keys in Mac Keychain only:
+Resolution order: env var → Doppler → Mac Keychain.
+
 ```bash
+# Mac Keychain (fallback)
 security add-generic-password -a "$USER" -s "anthropic-german-mail" -w "sk-ant-xxxxx"
 security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-key"
-```
-Use Bitwarden as source of truth across Macs.
 
+# Doppler (recommended)
+doppler setup  # select project: private-pdf-translator, config: prd
+```
