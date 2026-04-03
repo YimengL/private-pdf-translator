@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 import os
 
-from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileSystemEventHandler
+from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileMovedEvent, FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 import pipeline
 
@@ -29,7 +29,10 @@ class PDFHandler(FileSystemEventHandler):
     
 
     def on_modified(self, event: FileModifiedEvent) -> None:
-        self._handle(event.src_path) 
+        self._handle(event.src_path)
+
+    def on_moved(self, event: FileMovedEvent) -> None:
+        self._handle(event.dest_path)
 
 
 def _preflight() -> None:

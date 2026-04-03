@@ -75,5 +75,5 @@ YYYY-MM-DD — document issue date. Omit if not found or uncertain.
 € X.XX — only for payment due or refund. Omit if informational.
 
 ## SUMMARY_SHORT
-One sentence (max 25 words) for a Telegram notification. No PII.
-If the message is critical or 25 words is not enough, end with: "→ Read full document."
+One sentence (max 40 words) for a Telegram notification. No PII.
+If the message is critical or 40 words is not enough, end with: "→ Read full document."
