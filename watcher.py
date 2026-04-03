@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class PDFHandler(FileSystemEventHandler):
+    _sem = threading.Semaphore(1) # Ensure only one translation runs at a time to avoid OOM issues
 
     def _handle(self, src_path: str) -> None:
         path = Path(src_path)
@@ -21,8 +22,12 @@ class PDFHandler(FileSystemEventHandler):
         
         output_path = pipeline.derive_output_path(path)
         logger.info("New PDF detected, translating: %s -> %s", path.name, output_path.name)
-        threading.Thread(target=pipeline.main, args=(str(path), str(output_path)), daemon=True).start()
-    
+        threading.Thread(target=self._process, args=(path, output_path), daemon=True).start()
+
+    def _process(self, path: Path, output_path: Path) -> None:
+        with self._sem:
+            pipeline.main(str(path), str(output_path))
+
 
     def on_created(self, event: FileCreatedEvent) -> None:
         self._handle(event.src_path)
