@@ -1,0 +1,3 @@
+setup:
+  project: private-pdf-translator
+  config: prd

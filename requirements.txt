@@ -8,3 +8,4 @@ presidio-analyzer
 presidio-anonymizer
 spacy
 langdetect
+watchdog>=4.0

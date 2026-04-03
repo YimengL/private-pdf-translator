@@ -12,9 +12,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -m spacy download de_core_news_lg \
- && python -m spacy download en_core_web_lg
+RUN python -m spacy download de_core_news_md \
+ && python -m spacy download en_core_web_md
 
 COPY pipeline.py .
 COPY prompt.md .
 COPY prompt_en.md .
+COPY main.py .
+COPY watcher.py .
+
+ENTRYPOINT ["python3", "main.py"]
