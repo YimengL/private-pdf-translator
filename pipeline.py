@@ -1,4 +1,5 @@
 import json
+import html
 import logging
 import os
 import re
@@ -18,6 +19,8 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+from PIL import ImageDraw
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -38,24 +41,22 @@ def main(input_pdf: str, output_pdf: str) -> None:
     log.info(f"Input:  {input_pdf}")
     log.info(f"Output: {output_pdf}")
 
-    images, images_for_ocr = step1_load_input(input_pdf)
-    raw_german, conf       = step2_ocr(images_for_ocr)
+    raw_german, conf       = step1_load_input(input_pdf)
     is_english             = _detect_language(raw_german)
     if is_english:
         log.info("  Detected English document — skipping local translation")
-    german_redacted  = None if is_english else step3_redact_de(raw_german)
-    local_english    = None if is_english else step4_deepl_translate(german_redacted)
-    english_redacted = step5_redact_en(raw_german if is_english else local_english)
-    claude_output, claude_usage    = step6_claude(german_redacted, english_redacted, conf, is_english)
-    step7_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
-    step8_write_sidecar(output_pdf, input_pdf, claude_output, conf, claude_usage)
+    german_redacted  = None if is_english else step2_redact_de(raw_german)
+    local_english    = None if is_english else step3_deepl_translate(german_redacted)
+    english_redacted = step4_redact_en(raw_german if is_english else local_english)
+    claude_output, claude_usage    = step5_claude(german_redacted, english_redacted, conf, is_english)
+    step6_build_pdf(output_pdf, raw_german, local_english, claude_output, conf, is_english)
+    step7_write_sidecar(output_pdf, input_pdf, claude_output, conf, claude_usage)
     update_index(input_pdf, claude_output)
 
 
 # ── Step 1: Load input ───────────────────────────────────────────────────────
 def _mask_image_regions(pil_img: Image.Image, page: fitz.Page, scale: float) -> Image.Image:
     """White-out embedded image regions so Tesseract only sees text."""
-    from PIL import ImageDraw
     img = pil_img.copy()
     draw = ImageDraw.Draw(img)
     for item in page.get_images(full=True):
@@ -84,36 +85,57 @@ def _normalise_image(img: Image.Image) -> Image.Image:
     return img
 
 
-def step1_load_input(input_path: str) -> tuple[list, list] | tuple[None, None]:
-    log.info("Step 1: Load input")
+def step1_load_input(input_path: str) -> tuple[str | None, float]:
+    """Load input and OCR page-by-page - keeps only one page in memory at a time."""
+    log.info("Step 1: Load and OCR")
     try:
         suffix = Path(input_path).suffix.lower()
         if suffix == ".pdf":
             doc = fitz.open(input_path)
             mat = fitz.Matrix(300/72, 300/72)
             scale = 300/72
-            images, images_for_ocr = [], []
-            for page in doc:
+            pages, page_confs = [], []
+            for i, page in enumerate(doc, 1):
+                log.info(f" OCR page {i}/{len(doc)}")
                 pix = page.get_pixmap(matrix=mat, annots=False)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                images.append(img)
-                images_for_ocr.append(_mask_image_regions(img, page, scale))
-            log.info(f"  PDF: {len(images)} page(s) at 300 DPI")
+                img = _mask_image_regions(img, page, scale)
+                data = pytesseract.image_to_data(img, lang="deu",
+                                                 config="--psm 1 --oem 1",
+                                                 output_type=pytesseract.Output.DICT)
+                confs = [c for c in data["conf"] if c != -1]
+                page_confs.append(sum(confs) / len(confs) if confs else 0.0)
+                log.info(f"  Page {i} confidence: {page_confs[-1]:.0f}%")
+                text = pytesseract.image_to_string(img, lang="deu", config="--psm 1 --oem 1")
+                pages.append(text)
+                del img, pix # free page memory before loading next
+            key_confs = page_confs[:2]
+            avg_conf = sum(key_confs) / len(key_confs) if key_confs else 0.0
+            if avg_conf < OCR_CONFIDENCE_WARN:
+                log.warning(f"  ⚠️  Low OCR confidence (pages 1-2): {avg_conf:.0f}% — translation may be unreliable")
+            else:
+                log.info(f"  OCR confidence (pages 1-2): {avg_conf:.0f}%")
+            result = _clean_ocr_text("\n\n---\n\n".join(pages))
+            log.info(f"  {len(doc)} page(s), {len(result)} characters extracted")
+            return result, avg_conf
         elif suffix in SUPPORTED_IMAGES:
             img = _normalise_image(Image.open(input_path))
-            images = [img]
-            images_for_ocr = [img]  # no embedded images to mask
-            log.info(f"  Image: 1 page loaded")
+            data = pytesseract.image_to_data(img, lang="deu",
+                                             config="--psm 1 --oem 1",
+                                             output_type=pytesseract.Output.DICT)
+            confs = [c for c in data["conf"] if c != -1]
+            conf = sum(confs) / len(confs) if confs else 0.0
+            text = pytesseract.image_to_string(img, lang="deu", config="--psm 1 --oem 1")
+            log.info(f" Image: 1 page, confidence: {conf:.0f}%")
+            return _clean_ocr_text(text), conf
         else:
             log.warning(f"  Unsupported file type: {suffix}")
-            return None, None
-        return images, images_for_ocr
+            return None, 0.0
     except Exception as e:
         log.warning(f"Step 1 FAILED: {e}")
-        return None, None
+        return None, 0.0
 
 
-# ── Step 2: Tesseract OCR ────────────────────────────────────────────────────
 def _clean_ocr_text(text: str) -> str:
     clean = []
     for line in text.splitlines():
@@ -126,39 +148,6 @@ def _clean_ocr_text(text: str) -> str:
         if alpha_ratio >= 0.6 and (word_count >= 3 or len(stripped) >= 15):
             clean.append(line)
     return "\n".join(clean)
-
-
-def step2_ocr(images: list | None) -> tuple[str | None, float]:
-    log.info("Step 2: Tesseract OCR")
-    if images is None:
-        log.warning("  Skipping — no images")
-        return None, 0.0
-    try:
-        pages, page_confs = [], []
-        for i, img in enumerate(images, 1):
-            log.info(f"  OCR page {i}/{len(images)}")
-            data = pytesseract.image_to_data(img, lang="deu",
-                                             config="--psm 1 --oem 1",
-                                             output_type=pytesseract.Output.DICT)
-            confs = [c for c in data["conf"] if c != -1]
-            page_confs.append(sum(confs) / len(confs) if confs else 0.0)
-            log.info(f"  Page {i} confidence: {page_confs[-1]:.0f}%")
-            text = pytesseract.image_to_string(img, lang="deu", config="--psm 1 --oem 1")
-            pages.append(text)
-
-        key_confs = page_confs[:2]
-        avg_conf = sum(key_confs) / len(key_confs) if key_confs else 0.0
-        if avg_conf < OCR_CONFIDENCE_WARN:
-            log.warning(f"  ⚠️  Low OCR confidence (pages 1-2): {avg_conf:.0f}% — translation may be unreliable")
-        else:
-            log.info(f"  OCR confidence (pages 1-2): {avg_conf:.0f}%")
-
-        result = _clean_ocr_text("\n\n---\n\n".join(pages))
-        log.info(f"  Extracted {len(result)} characters")
-        return result, avg_conf
-    except Exception as e:
-        log.warning(f"Step 2 FAILED: {e}")
-        return None, 0.0
 
 
 # ── PII masking helpers ──────────────────────────────────────────────────────
@@ -257,9 +246,9 @@ def _get_presidio_en():
     return _presidio_en, _presidio_anon
 
 
-# ── Step 3: PII redaction (German) — stub ───────────────────────────────────
-def step3_redact_de(text: str | None) -> str | None:
-    log.info("Step 3: PII redaction (German)")
+# ── Step 2: PII redaction (German) — stub ───────────────────────────────────
+def step2_redact_de(text: str | None) -> str | None:
+    log.info("Step 2: PII redaction (German)")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Redaction not implemented — output withheld from Claude")
         return None
@@ -282,13 +271,13 @@ def step3_redact_de(text: str | None) -> str | None:
         redacted = anonymizer.anonymize(text=text, analyzer_results=results, operators=operators)
         return redacted.text
     except Exception as e:
-        log.warning(f"Step 3 FAILED: {e} — withholding from Claude")
+        log.warning(f"Step 2 FAILED: {e} — withholding from Claude")
         return None
 
 
-# ── Step 4: DeepL translation ───────────────────────────────────────────────
-def step4_deepl_translate(text: str | None) -> str | None:
-    log.info("Step 4: DeepL translation")
+# ── Step 3: DeepL translation ───────────────────────────────────────────────
+def step3_deepl_translate(text: str | None) -> str | None:
+    log.info("Step 3: DeepL translation")
     if text is None:
         log.warning("  Skipping — no OCR text")
         return None
@@ -297,16 +286,17 @@ def step4_deepl_translate(text: str | None) -> str | None:
         translator = deepl.Translator(api_key)
     
         result = translator.translate_text(text, target_lang="EN-US").text
+        result = html.unescape(result)
         log.info(f"  Translation: {len(result)} characters")
         return result
     except Exception as e:
-        log.warning(f"Step 4 FAILED: {e} — skipping translation")
+        log.warning(f"Step 3 FAILED: {e} — skipping translation")
         return None
 
 
-# ── Step 5: PII redaction (English) — stub ──────────────────────────────────
-def step5_redact_en(text: str | None) -> str | None:
-    log.info("Step 5: PII redaction (English)")
+# ── Step 4: PII redaction (English) — stub ──────────────────────────────────
+def step4_redact_en(text: str | None) -> str | None:
+    log.info("Step 4: PII redaction (English)")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Redaction not implemented — output withheld from Claude")
         return None
@@ -329,11 +319,11 @@ def step5_redact_en(text: str | None) -> str | None:
         redacted = anonymizer.anonymize(text=text, analyzer_results=results, operators=operators)
         return redacted.text
     except Exception as e:
-        log.warning(f"Step 5 FAILED: {e} — withholding from Claude")
+        log.warning(f"Step 4 FAILED: {e} — withholding from Claude")
         return None
 
 
-# ── Step 6: Claude API ───────────────────────────────────────────────────────
+# ── Step 5: Claude API ───────────────────────────────────────────────────────
 def _load_index_context() -> str:
     if not INDEX_PATH.exists():
         return "No previous documents."
@@ -366,9 +356,9 @@ def _log_cost(usage) -> None:
         f.write(f"{datetime.now().isoformat()} | in={usage.input_tokens} out={usage.output_tokens} cost=${total:.4f}\n")
 
 
-def step6_claude(german_redacted: str | None, english_redacted: str | None,
+def step5_claude(german_redacted: str | None, english_redacted: str | None,
                  ocr_confidence: float, is_english: bool = False) -> tuple[str | None, dict | None]:
-    log.info("Step 6: Claude API analysis")
+    log.info("Step 5: Claude API analysis")
     if not REDACTION_IMPLEMENTED:
         log.warning("  ⚠️  Skipping — PII redaction not yet implemented. No unredacted text sent to cloud.")
         return None, None
@@ -409,19 +399,11 @@ def step6_claude(german_redacted: str | None, english_redacted: str | None,
                     raise
                 log.warning(f"  Attempt {attempt} failed: {e} — retrying...")
     except Exception as e:
-        log.warning(f"Step 6 FAILED: {e}")
+        log.warning(f"Step 5 FAILED: {e}")
         return None
 
 
-# ── Step 7: Build output PDF ─────────────────────────────────────────────────
-def _parse_claude_output(text: str) -> tuple[str, str]:
-    marker = "## FULL ENGLISH TRANSLATION"
-    if marker in text:
-        idx = text.index(marker)
-        return text[:idx].strip(), text[idx:].strip()
-    return text, ""
-
-
+# ── Step 6: Build output PDF ─────────────────────────────────────────────────
 def _make_styles() -> dict:
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     from reportlab.pdfbase.ttfonts import TTFont
@@ -485,21 +467,18 @@ def _build_metadata_block(ocr_confidence: float, is_english: bool, styles) -> li
     return _text_to_flowables(text, "Processing Info", styles)
 
 
-def step7_build_pdf(output_pdf: str, raw_german: str | None,
+def step6_build_pdf(output_pdf: str, raw_german: str | None,
                     local_english: str | None, claude_output: str | None,
                     ocr_confidence: float = 0.0,
                     is_english: bool = False) -> None:
-    log.info("Step 7: Build output PDF")
+    log.info("Step 6: Build output PDF")
     try:
         styles = _make_styles()
         story  = []
         story += _build_metadata_block(ocr_confidence, is_english, styles)
 
         if claude_output:
-            summary, translation = _parse_claude_output(claude_output)
-            story += _text_to_flowables(summary, "Summary", styles)
-            if translation:
-                story += [PageBreak()] + _text_to_flowables(translation, "Claude Translation", styles)
+            story += _text_to_flowables(claude_output, "Summary", styles)
 
         if not is_english:
             if local_english:
@@ -524,7 +503,7 @@ def step7_build_pdf(output_pdf: str, raw_german: str | None,
         doc.build(story)
         log.info(f"  ✅ Written: {output_pdf}")
     except Exception as e:
-        log.warning(f"Step 7 FAILED: {e}")
+        log.warning(f"Step 6 FAILED: {e}")
         _save_fallback_text(output_pdf, local_english, claude_output)
 
 
@@ -555,12 +534,12 @@ def _parse_date(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-# ── Step 8: Write sidecar JSON ───────────────────────────────────────────────
-def step8_write_sidecar(output_pdf: str, input_pdf: str,
+# ── Step 7: Write sidecar JSON ───────────────────────────────────────────────
+def step7_write_sidecar(output_pdf: str, input_pdf: str,
                         claude_output: str | None,
                         ocr_confidence: float,
                         claude_usage: dict | None) -> None:
-    log.info("Step 8: Write sidecar JSON")
+    log.info("Step 7: Write sidecar JSON")
     try:
         out_path = Path(output_pdf)
         data: dict = {
@@ -628,7 +607,7 @@ def step8_write_sidecar(output_pdf: str, input_pdf: str,
         sidecar.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info(f"  ✅ Sidecar written: {sidecar.name}")  
     except Exception as e:
-        log.warning(f"Step 8 FAILED: {e}")
+        log.warning(f"Step 7 FAILED: {e}")
 
 
 def update_index(input_pdf: str, claude_output: str | None) -> None:
