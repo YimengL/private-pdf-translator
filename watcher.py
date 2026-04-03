@@ -1,0 +1,58 @@
+import logging
+import signal
+from pathlib import Path
+import os
+
+from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileSystemEventHandler
+from watchdog.observers import Observer
+import pipeline
+
+logger = logging.getLogger(__name__)
+
+
+class PDFHandler(FileSystemEventHandler):
+
+    def _handle(self, src_path: str) -> None:
+        path = Path(src_path)
+        # Only process ori_*.pdf files
+        if path.suffix.lower() != ".pdf" or not path.name.startswith("ori_"):
+            return
+        
+        output_path = pipeline.derive_output_path(path)
+        logger.info("New PDF detected, translating: %s -> %s", path.name, output_path.name)
+        pipeline.main(str(path), str(output_path))
+    
+
+    def on_created(self, event: FileCreatedEvent) -> None:
+        self._handle(event.src_path)
+    
+
+    def on_modified(self, event: FileModifiedEvent) -> None:
+        self._handle(event.src_path) 
+
+
+def _preflight() -> None:
+    """Verify required secrets are available before starting the watch loop."""
+    missing = [k for k in ("ANTHROPIC_API_KEY", "DEEPL_API_KEY") if not os.getenv(k)]
+    if missing:
+        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
+
+
+def start(folder: str) -> None:
+    _preflight()
+
+    watch_path = Path(folder).expanduser()
+    if not watch_path.is_dir():
+        raise ValueError(f"Watch folder does not exist: {watch_path}")
+    
+    handler = PDFHandler()
+    observer = Observer()
+    observer.schedule(handler, str(watch_path), recursive=True)
+    logger.info("Watching for PDFs: %s", watch_path)
+    observer.start()
+
+    signal.signal(signal.SIGTERM, lambda s, f: observer.stop())
+    try:
+        observer.join()
+    except KeyboardInterrupt:
+        observer.stop()
