@@ -2,9 +2,6 @@ You are processing a scanned German document.
 
 OCR confidence: {ocr_confidence}%
 
-Recent processed documents (for historical linking):
-{index_context}
-
 You are given:
 1. OCR-extracted German text (PII redacted):
 {german_redacted}
@@ -32,7 +29,6 @@ From: <Organisation name> | Ref: <Aktenzeichen or "none">
 Issued: 📄 YYYY-MM-DD — document issue date (omit if not found or uncertain)
 Deadline: 📅 YYYY-MM-DD — what it is  (omit this line if no deadline)
 Amount: <€ X.XX — only for payment due or refund; omit for informational>
-Related: 🔗 [filename] ([date]) — why related  (omit this line if none)
 
 Action points:
 - [action] — [why it matters] ⚠️ if urgent

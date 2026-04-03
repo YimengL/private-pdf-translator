@@ -74,7 +74,3 @@ Fields: `schema_version`, `filename`, `original_filename`, `date`, `issued`*, `s
 
 *optional — omitted if not found or uncertain
 
-## Local data
-
-- `~/.german-mail/index.json` — processed document history
-- `~/.german-mail/costs.log` — Claude API cost log
