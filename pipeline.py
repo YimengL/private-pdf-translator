@@ -223,7 +223,7 @@ def _get_presidio_de():
         )
         provider = NlpEngineProvider(nlp_configuration={
             "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "de", "model_name": "de_core_news_lg"}],
+            "models": [{"lang_code": "de", "model_name": "de_core_news_md"}],
         })
         registry = RecognizerRegistry(supported_languages=["de"])
         registry.load_predefined_recognizers(languages=["de"])
@@ -245,7 +245,7 @@ def _get_presidio_en():
 
         provider = NlpEngineProvider(nlp_configuration={
             "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}],
+            "models": [{"lang_code": "en", "model_name": "en_core_web_md"}],
         })
         registry = RecognizerRegistry()
         registry.load_predefined_recognizers(languages=["en"])
@@ -652,6 +652,18 @@ def update_index(input_pdf: str, claude_output: str | None) -> None:
     entries.append(entry)
     INDEX_PATH.write_text(json.dumps(entries, ensure_ascii=False, indent=2))
     log.info(f"  Index updated: {entry['sender']} | {entry['reference']}")
+
+
+def derive_output_path(input_path: Path) -> Path:
+    """
+    Derive proc_*.pdf output path from an input PDF.
+
+    ori_x.pdf -> proc_x.pdf
+    anything_else.pdf -> proc_anything_else.pdf
+    """
+    name = input_path.name
+    output_name = "proc_" + (name[len("ori_"):] if name.startswith("ori_") else name)
+    return input_path.parent / output_name
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
