@@ -384,7 +384,7 @@ def step5_claude(german_redacted: str | None, english_redacted: str | None,
                 log.warning(f"  Attempt {attempt} failed: {e} — retrying...")
     except Exception as e:
         log.warning(f"Step 5 FAILED: {e}")
-        return None
+        return None, None
 
 
 # ── Step 6: Build output PDF ─────────────────────────────────────────────────
