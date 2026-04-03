@@ -1,70 +1,76 @@
 # German Mail Pipeline
 
 Processes scanned German mail (PDF or photo) into a structured output PDF. Uses Tesseract OCR,
-Presidio PII redaction, DeepL free API for translation, and
-Claude AI (claude-sonnet-4-6) to analyse the redacted content.
+Presidio PII redaction, DeepL for translation, and Claude AI (`claude-sonnet-4-6`) for analysis.
 
 ![Sample output](sample_output.jpg)
 
 ## Prerequisites
 
 - Docker Desktop (running)
-- Mac Keychain entries:
-
-```bash
-security add-generic-password -a "$USER" -s "anthropic-german-mail" -w "sk-ant-xxxxx"
-security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-key"
-```
+- Secrets via Doppler, env var, or Mac Keychain (see below)
 
 ## Install
 
 ```bash
 # Clone the repo
-git clone git@github.com:yourname/private-pdf-translator.git ~/git/private-pdf-translator
+git clone git@github.com:YimengL/private-pdf-translator.git ~/git/private-pdf-translator
 
-# Install the translate command
-cp translate.sh /usr/local/bin/translate
-chmod +x /usr/local/bin/translate
+# Install the translate command (one-time)
+ln -s ~/git/private-pdf-translator/translate.sh /usr/local/bin/translate
+```
 
-# The image is built automatically on first run of `translate`
+The Docker image is built automatically on first run.
+
+## Secrets
+
+Resolution order: env var → Doppler → Mac Keychain.
+
+```bash
+# Mac Keychain (fallback)
+security add-generic-password -a "$USER" -s "anthropic-german-mail" -w "sk-ant-xxxxx"
+security add-generic-password -a "$USER" -s "deepl-german-mail" -w "your-deepl-key"
+
+# Doppler (recommended)
+doppler setup  # select project: private-pdf-translator, config: prd
 ```
 
 ## Usage
 
+### One-shot translate
+
 ```bash
-translate ~/mails/2024_001/ori_2024_001_letter.pdf
+translate ~/gdrive/mail_in/ori_letter.pdf
 ```
 
-Any file not prefixed `proc_` is treated as input. Output is prefixed `proc_`, saved in the same folder. The `ori_` prefix is stripped if present.
-Also accepts image files: `.jpg`, `.jpeg`, `.png`, `.tiff`
+### Watch mode (daemon)
+
+```bash
+cd ~/git/private-pdf-translator
+doppler run -- docker compose up
+```
+
+Watches `~/gdrive/mail_in/` for new `ori_*.pdf` files and processes them automatically.
 
 ## Output
 
 **German input:**
 ```
-Page 1        Summary — importance score, type, sender, deadline, action points,
-                        key info (EN + 中文), sensitive info
-Page 2–x      Claude full translation
-Page x–y      DeepL translation
-Page y–z      OCR German (for verification)
+Page 1      Summary — importance score, type, sender, deadline, action points,
+                      key info (EN + 中文), sensitive info
+Page 2–x    DeepL translation
+Page x–y    OCR German (for verification)
 ```
 
 **English input (auto-detected):**
 ```
-Page 1        Summary — importance score, type, sender, deadline, action points,
-                        key info (EN + 中文), sensitive info
-Page 2–x      Claude analysis
+Page 1      Summary — importance score, type, sender, deadline, action points,
+                      key info (EN + 中文), sensitive info
 ```
 
 PII redacted before any text reaches Claude:
 - German input: phone numbers, IBAN, tax ID, passwords
 - English input: phone numbers, IBAN
-
-## Known limitations
-
-- CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
-- English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
-- Image input (.jpg, .png etc.) — code path exists but untested
 
 ## Sidecar JSON
 
@@ -74,3 +80,8 @@ Fields: `schema_version`, `filename`, `original_filename`, `date`, `issued`*, `s
 
 *optional — omitted if not found or uncertain
 
+## Known limitations
+
+- CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
+- English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
+- Image input (.jpg, .png etc.) — code path exists but untested
