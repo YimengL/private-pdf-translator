@@ -81,6 +81,3 @@ YYYY-MM-DD — document issue date. Omit if not found or uncertain.
 ## SUMMARY_SHORT
 One sentence (max 25 words) for a Telegram notification. No PII.
 If the message is critical or 25 words is not enough, end with: "→ Read full document."
-
-## FULL ENGLISH TRANSLATION
-Full accurate translation of the document. Preserve the original paragraph structure, section breaks, and layout. Each paragraph in the original should be a separate paragraph in the translation. Keep headers as headers.
