@@ -92,7 +92,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [build, verify]
         permissions:
-            contents: read
+            contents: write
             packages: write
         env:
             REPO: ghcr.io/${{ github.repository }}
