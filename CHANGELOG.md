@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.3] - 2026-04-04
+
 ## [1.0.2] - 2026-04-04
 - feat: multi-arch Docker build (arm64 + amd64) via native GitHub runners
 - chore: CI now triggers only on CHANGELOG.md changes
