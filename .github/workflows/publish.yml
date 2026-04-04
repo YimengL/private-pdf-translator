@@ -87,6 +87,7 @@ jobs:
               with:
                 path: /tmp/digests
                 merge-multiple: true
+                pattern: digest-*
             
             - name: Log in to Github Container Registry
               uses: docker/login-action@v3
