@@ -5,8 +5,16 @@ on:
         branches: [main]
 
 jobs:
-    push:
-        runs-on: ubuntu-latest
+    build:
+        # Run 2 parallel jobs - one on amd64 runner, one on arm64 runner; No emulation
+        strategy:
+            matrix:
+                include:
+                    - platform: linux/amd64
+                      runner: ubuntu-latest
+                    - platform: linux/arm64
+                      runner: ubuntu-24.04-arm
+        runs-on: ${{ matrix.runner }}
         permissions:
             contents: read
             packages: write
@@ -17,10 +25,10 @@ jobs:
 
             - name: Set image names
               run: |
-                echo "IMAGE=${REPO,,}:latest" >> $GITHUB_ENV
                 VERSION=$(grep -m1 '## \[' CHANGELOG.md | sed 's/## \[\(.*\)\].*/\1/')
-                echo "VERSIONED=${REPO,,}:${VERSION}" >> $GITHUB_ENV
-
+                echo "VERSION=${VERSION}" >> $GITHUB_ENV
+                echo "REPO_LC=${REPO,,}" >> $GITHUB_ENV
+            
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
@@ -30,13 +38,66 @@ jobs:
                 registry: ghcr.io
                 username: ${{ github.actor }}
                 password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Build and push Docker image
+            
+            # Push image by digest only (no tag yet) - tags are applied in the merge job
+            - name: Build and push by digest
+              id: build
               uses: docker/build-push-action@v4
               with:
                 context: .
-                push: true
-                platforms: linux/amd64
-                tags: |
-                  ${{ env.IMAGE }}
-                  ${{ env.VERSIONED }}
+                platforms: ${{ matrix.platform }}
+                outputs: type=image,name=${{ env.REPO_LC }},push-by-digest=true,name-canonical=true,push=true
+            
+            # Save the digest hash to a file so the merge job can find both digests
+            - name: Export digest
+              run: |
+                mkdir -p /tmp/digests
+                digest="${{ steps.build.outputs.digest }}"
+                touch "/tmp/digests/${digest#sha256:}"
+            
+            - name: Upload digest
+              uses: actions/upload-artifact@v4
+              with:
+                name: digest-${{ matrix.runner }}
+                path: /tmp/digests/*
+                retention-days: 1 # Only keep for 1 day since the merge job will run immediately after and delete the file
+    
+    merge:
+        # Wait for both build jobs to finish, then combine into a single multi-arch manifest
+        runs-on: ubuntu-latest
+        needs: build
+        permissions:
+            contents: read
+            packages: write
+        env:
+            REPO: ghcr.io/${{ github.repository }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set image name
+              run: |
+                VERSION=$(grep -m1 '## \[' CHANGELOG.md | sed 's/## \[\(.*\)\].*/\1/')
+                echo "VERSION=${VERSION}" >> $GITHUB_ENV
+                echo "REPO_LC=${REPO,,}" >> $GITHUB_ENV
+            
+            - name: Download digests
+              uses: actions/download-artifact@v4
+              with:
+                path: /tmp/digests
+                merge-multiple: true
+            
+            - name: Log in to Github Container Registry
+              uses: docker/login-action@v3
+              with:
+                registry: ghcr.io
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+            
+            # Combine both digests into one manifest and apply version + latest tags
+            - name: Create and push manifest
+              run: |
+                docker buildx imagetools create \
+                  --tag "${{ env.REPO_LC }}:${{ env.VERSION }}" \
+                  --tag "${{ env.REPO_LC }}:latest" \
+                  $(printf '${{ env.REPO_LC }}@sha256:%s ' *)
+              working-directory: /tmp/digests
