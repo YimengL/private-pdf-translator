@@ -132,3 +132,8 @@ jobs:
                   --tag "${{ env.REPO_LC }}:latest" \
                   $(printf '${{ env.REPO_LC }}@sha256:%s ' *)
               working-directory: /tmp/digests
+
+            - name: Create git tag
+              run: |
+                git tag ${{ env.VERSION }}
+                git push origin ${{ env.VERSION }}
