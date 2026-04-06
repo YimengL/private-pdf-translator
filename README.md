@@ -43,14 +43,9 @@ doppler setup  # select project: private-pdf-translator, config: prd
 translate ~/gdrive/mail_in/ori_letter.pdf
 ```
 
-### Watch mode (daemon)
+### Automated watch mode
 
-```bash
-cd ~/git/private-pdf-translator
-doppler run -- docker compose up
-```
-
-Watches `~/gdrive/mail_in/` for new `ori_*.pdf` files and processes them automatically.
+Handled by [home-automation](https://github.com/YimengL/home-automation) — installs this package and orchestrates watching, D1/R2 upload, and Telegram notification.
 
 ## Output
 

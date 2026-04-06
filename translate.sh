@@ -20,7 +20,7 @@ _needs_build() {
         return 0
     fi
     IMAGE_TS=$(docker inspect german-mail-pipeline --format='{{.Created}}' | xargs -I{} date -j -f "%Y-%m-%dT%H:%M:%S" "{}" "+%s" 2>/dev/null)
-    LATEST=$(stat -f "%m" "$PIPELINE_DIR/Dockerfile" "$PIPELINE_DIR/requirements.txt" "$PIPELINE_DIR/pipeline.py" | sort -n | tail -1)
+    LATEST=$(stat -f "%m" "$PIPELINE_DIR/Dockerfile" "$PIPELINE_DIR/pyproject.toml" "$PIPELINE_DIR/pipeline.py" | sort -n | tail -1)
     [ "$LATEST" -gt "$IMAGE_TS" ]
 }
 if _needs_build; then
@@ -77,4 +77,4 @@ docker run --rm \
     -e DEEPL_API_KEY="$DEEPL_API_KEY" \
     --mount "type=bind,source=${INPUT_DIR},target=/data" \
     german-mail-pipeline \
-    translate "/data/$INPUT_FILE"
+    "/data/$INPUT_FILE"

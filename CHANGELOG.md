@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.6] - 2026-04-06
+- chore: Remove watcher
+- feature: use 200 DPI to lower the ram usage 
+
 ## [1.0.5] - 2026-04-05
 
 ## [1.0.4] - 2026-04-04
