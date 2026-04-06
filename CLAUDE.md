@@ -16,24 +16,20 @@ Processes scanned German mail (PDF or phone photo) into an output PDF with local
 ## Entry Points
 
 ```bash
-# One-shot translate
+# One-shot translate (standalone)
 translate ~/gdrive/mail_in/ori_letter.pdf
-
-# Watch mode (daemon)
-cd ~/git/private-pdf-translator
-doppler run -- docker compose up
 ```
 
 - `translate` → `/usr/local/bin/translate` (symlink to `translate.sh`)
-- Watch folder: `~/gdrive/mail_in/` — monitors for `ori_*.pdf` files
 - Input: any file not prefixed `proc_` (strips `ori_` if present)
 - Output: prefixed `proc_`, saved in same folder
 - Also accepts: `.jpg`, `.jpeg`, `.png`, `.tiff`
+- Watch/orchestration is handled by [home-automation](https://github.com/YimengL/home-automation)
 
 ## Architecture
 
 ```
-translate.sh / docker-compose.yml → Docker → pipeline.py
+translate.sh → Docker → pipeline.py
   Step 1: OCR (page-by-page)  — PDF/image → text + confidence (streaming, low memory)
   Step 2: Presidio             — redact German text (skipped for English input)
   Step 3: DeepL API            — German text → English translation (skipped for English input)

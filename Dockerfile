@@ -19,6 +19,5 @@ COPY pipeline.py .
 COPY prompt.md .
 COPY prompt_en.md .
 COPY main.py .
-COPY watcher.py .
 
 ENTRYPOINT ["python3", "main.py"]

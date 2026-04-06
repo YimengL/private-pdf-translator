@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "private-pdf-translator"
-version = "1.0.5"
+version = "1.0.6"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic",
@@ -17,7 +17,6 @@ dependencies = [
     "presidio-anonymizer",
     "spacy",
     "langdetect",
-    "watchdog>=4.0",
 ]
 
 [project.scripts]
@@ -26,7 +25,6 @@ pdf-translate = "main:main"
 [tool.hatch.build.targets.wheel]
 include = [
     "pipeline.py",
-    "watcher.py",
     "main.py",
     "prompt.md",
     "prompt_en.md",

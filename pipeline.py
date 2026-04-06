@@ -90,8 +90,8 @@ def step1_load_input(input_path: str) -> tuple[str | None, float]:
         suffix = Path(input_path).suffix.lower()
         if suffix == ".pdf":
             doc = fitz.open(input_path)
-            mat = fitz.Matrix(300/72, 300/72)
-            scale = 300/72
+            mat = fitz.Matrix(200/72, 200/72)
+            scale = 200/72
             pages, page_confs = [], []
             for i, page in enumerate(doc, 1):
                 log.info(f" OCR page {i}/{len(doc)}")
