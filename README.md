@@ -3,6 +3,16 @@
 Processes scanned German mail (PDF or photo) into a structured output PDF. Uses Tesseract OCR,
 Presidio PII redaction, DeepL for translation, and Claude AI (`claude-sonnet-4-6`) for analysis.
 
+## Architecture
+
+The pipeline runs as a single `translate` entrypoint that starts a Dockerized Python workflow. It first OCRs the document page by page, then conditionally redacts and translates the extracted text before sending only redacted content to Claude for structured analysis. The final step assembles a PDF that combines the summary, translation, and original OCR output, and writes a sidecar JSON file for downstream automation.
+
+This repository is the document-processing engine only. File watching, orchestration, D1/R2 upload, and Telegram notification live in [home-automation](https://github.com/YimengL/home-automation), which installs and calls this repo as a standalone processor.
+
+The diagram below shows the end-to-end processing flow from input file to generated PDF and metadata:
+
+![Pipeline diagram](docs/pipeline.png)
+
 ![Sample output](sample_output.jpg)
 
 ## Prerequisites
@@ -37,15 +47,27 @@ doppler setup  # select project: private-pdf-translator, config: prd
 
 ## Usage
 
-### One-shot translate
+### Standalone processor
 
 ```bash
 translate ~/gdrive/mail_in/ori_letter.pdf
 ```
 
-### Automated watch mode
+This repo exposes a single `translate` command:
 
-Handled by [home-automation](https://github.com/YimengL/home-automation) — installs this package and orchestrates watching, D1/R2 upload, and Telegram notification.
+- Input: PDF or image file (`.pdf`, `.jpg`, `.jpeg`, `.png`, `.tiff`)
+- Input filename: any file not prefixed `proc_` (`ori_` is stripped if present)
+- Output: `proc_*.pdf` in the same folder
+- Sidecar metadata: `proc_*.json` alongside the output PDF
+
+### Automated workflow
+
+If you want a watched inbox and downstream automation, use [home-automation](https://github.com/YimengL/home-automation). That repo is responsible for:
+
+- watching the input folder
+- invoking `translate`
+- uploading results to D1/R2
+- sending Telegram notifications
 
 ## Output
 
