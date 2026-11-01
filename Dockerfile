@@ -19,5 +19,7 @@ COPY pipeline.py .
 COPY prompt.md .
 COPY prompt_en.md .
 COPY main.py .
+COPY local_pipeline.py .
+COPY local_redact.py .
 
 ENTRYPOINT ["python3", "main.py"]
