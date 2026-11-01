@@ -83,10 +83,14 @@ def main(input_path: str, raw_root: str, masked_root: str) -> int:
     return 0
 
 
-if __name__ == "__main__":
+def cli() -> None:
     parser = argparse.ArgumentParser(prog="pdf-scan")
     parser.add_argument("pdf_path")
     parser.add_argument("--raw-root", required=True)
     parser.add_argument("--masked-root", required=True)
     args = parser.parse_args()
     sys.exit(main(args.pdf_path, args.raw_root, args.masked_root))
+
+
+if __name__ == "__main__":
+    cli()
