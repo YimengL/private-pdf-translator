@@ -21,11 +21,14 @@ dependencies = [
 
 [project.scripts]
 pdf-translate = "main:main"
+pdf-scan = "local_pipeline:cli"
 
 [tool.hatch.build.targets.wheel]
 include = [
     "pipeline.py",
     "main.py",
+    "local_pipeline.py",
+    "local_redact.py",
     "prompt.md",
     "prompt_en.md",
 ]
