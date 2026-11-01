@@ -97,8 +97,30 @@ Fields: `schema_version`, `filename`, `original_filename`, `date`, `issued`*, `s
 
 *optional — omitted if not found or uncertain
 
+## Local scan (sensitive documents)
+
+A second, local-only pipeline for scans that must not leave your machine. It needs no
+API keys and runs with no network (`docker run --network none`). The `translate` flow
+above is unchanged. Design: [docs/local-scan-design.md](docs/local-scan-design.md).
+
+```bash
+export SCAN_RAW_ROOT=~/private-docs/raw        # originals, read-only in the container
+export SCAN_MASKED_ROOT=~/private-docs/masked  # must not be inside the raw folder
+./scan.sh ~/private-docs/raw/utilities/2026-10_electricity.pdf
+```
+
+Flow: OCR (page by page) → two-tier redaction → gate → masked text file at
+`$SCAN_MASKED_ROOT/utilities/2026-10_electricity.txt` (same sub-path, `=== page N ===` markers).
+
+- High tier (tax ID/number, PIN/TAN/password, ID number, date of birth): fully masked, e.g. `[TAX_ID]`.
+- Moderate tier (IBAN, phone): partially masked.
+- Gate: if a high-tier item is still visible after masking, nothing is written. The output
+  shows counts per page, never values.
+- Exit codes: `0` passed, `2` gate blocked, anything else failed.
+
 ## Known limitations
 
 - CJK mixed lines (Chinese + German) fall back to Helvetica — German umlauts normalised (ß→ss etc.)
 - English input (auto-detected via langdetect) — pipeline logic implemented but untested on real English mail
 - Image input (.jpg, .png etc.) — code path exists but untested
+- Local scan pipeline (`scan.sh`) — tested once end to end on a dummy PDF only; the gate's block path is untested, and the gate reuses the redaction recognizers, so it cannot catch what they miss entirely
