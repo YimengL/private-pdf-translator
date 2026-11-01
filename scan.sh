@@ -4,9 +4,12 @@ set -euo pipefail
 PIPELINE_DIR="$HOME/git/private-pdf-translator"
 IMAGE="german-mail-pipeline"
 
+FORCE=""
+if [ "${1:-}" = "--force" ]; then FORCE="--force"; shift; fi
+
 # 1. Validate input and folders
 if [ -z "${1:-}" ] || [ ! -f "$1" ]; then
-    echo "❌ Usage: scan.sh <path-to-pdf>"
+    echo "❌ Usage: scan.sh [--force] <path-to-pdf>"
     exit 1
 fi
 if [ -z "${SCAN_ROOT:-}" ]; then
@@ -36,7 +39,7 @@ _needs_build() {
         return 0
     fi
     IMAGE_TS=$(docker inspect "$IMAGE" --format='{{.Created}}' | xargs -I{} date -j -f "%Y-%m-%dT%H:%M:%S" "{}" "+%s" 2>/dev/null)
-    LATEST=$(stat -f "%m" "$PIPELINE_DIR"/{Dockerfile,pyproject.toml,pipeline.py,local_pipeline.py,local_redact.py} | sort -n | tail -1)
+    LATEST=$(stat -f "%m" "$PIPELINE_DIR"/{Dockerfile,pyproject.toml,pipeline.py,local_pipeline.py,local_redact.py,local_index.py} | sort -n | tail -1)
     [ "$LATEST" -gt "$IMAGE_TS" ]
 }
 if _needs_build; then
@@ -51,7 +54,8 @@ docker run --rm --network none --entrypoint python3 \
     --mount "type=bind,source=${RAW_ROOT},target=/raw,readonly" \
     --mount "type=bind,source=${MASKED_ROOT},target=/masked" \
     --mount "type=bind,source=${INDEX_ROOT},target=/index" \
-    "$IMAGE" local_pipeline.py "/raw/$REL" --raw-root /raw --masked-root /masked || CODE=$?
+    "$IMAGE" local_pipeline.py "/raw/$REL" --raw-root /raw --masked-root /masked \
+    --index-root /index $FORCE || CODE=$?
 
 case "$CODE" in
     0) echo "✅ Gate passed. Masked file: $MASKED_ROOT/${REL%.*}.txt" ;;
