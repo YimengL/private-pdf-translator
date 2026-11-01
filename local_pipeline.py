@@ -7,17 +7,15 @@ from pathlib import Path
 
 import fitz  # pymupdf
 
-from pipeline import _get_presidio_de, step1_load_input, step2_redact_de
+from local_redact import HIGH_TIER, MODERATE_TIER, get_analyzer, redact_de
+from pipeline import step1_load_input
 
 log = logging.getLogger(__name__)
-
-HIGH_TIER = {"TAX_ID", "PASSWORD"}
-MODERATE_TIER = {"IBAN_CODE", "PHONE_NUMBER"}
 
 
 def gate(masked: str) -> Counter:
     """Re-scan masked text. Returns leftover sensitive items counted by type."""
-    analyzer, _ = _get_presidio_de()
+    analyzer, _ = get_analyzer()
     results = analyzer.analyze(text=masked, language="de",
                                entities=sorted(HIGH_TIER | MODERATE_TIER))
     return Counter(r.entity_type for r in results)
@@ -54,7 +52,7 @@ def main(input_path: str, raw_root: str, masked_root: str) -> int:
         if raw_text is None:
             log.error(f"OCR failed on page {n} - nothing written")
             return 1
-        masked = step2_redact_de(raw_text)
+        masked = redact_de(raw_text)
         if masked is None:
             log.error(f"Redaction failed on page {n} - nothing written")
             return 1
