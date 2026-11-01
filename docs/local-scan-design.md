@@ -37,6 +37,12 @@ raw PDF (private folder, agent blocked)
 
 Raw OCR text is never saved. It exists only in memory.
 
+Pages are processed one at a time: the PDF is split into single-page
+files, and the existing OCR and redaction run on each. The masked file
+has `=== page N ===` markers, so the gate and the agent can refer to
+pages. (The old OCR cleanup removes the `---` separators, so we add our
+own markers instead of changing the OCR logic.)
+
 ## Sensitivity tiers
 
 | Tier | Items | Masking | Gate |
