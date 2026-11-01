@@ -3,10 +3,12 @@ import logging
 import sys
 import tempfile
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 
 import fitz  # pymupdf
 
+from local_index import connect, file_sha256, lookup, record
 from local_redact import HIGH_TIER, MODERATE_TIER, get_analyzer, redact_de
 from pipeline import step1_load_input
 
@@ -41,10 +43,23 @@ def iter_pages(input_path: Path):
             yield i + 1, page_file
 
 
-def main(input_path: str, raw_root: str, masked_root: str) -> int:
+def main(input_path: str, raw_root: str, masked_root: str,
+         index_root: str, force: bool = False) -> int:
     src = Path(input_path)
     out = masked_path(src, Path(raw_root), Path(masked_root))
+    rel = str(src.resolve().relative_to(Path(raw_root).resolve()))
+    masked_rel = str(out.relative_to(Path(masked_root)))
+    sha = file_sha256(src)
+    with closing(connect(Path(index_root) / "scan_index.sqlite")) as conn:
+        row = lookup(conn, sha)
+        if (row and not force and row["gate_result"] == "passed"
+                and row["path"] == rel and out.exists()):
+            log.info("Already scanned and passed - skipping (use --force to rescan)")
+            return 0
+        return _scan(src, out, conn, sha, rel, masked_rel)
 
+
+def _scan(src: Path, out: Path, conn, sha: str, rel: str, masked_rel: str) -> int:
     pages, confs = [], []
     blocked, moderate = {}, Counter()
     for n, page_file in iter_pages(src):
@@ -72,6 +87,7 @@ def main(input_path: str, raw_root: str, masked_root: str) -> int:
         return 1
     if blocked:
         log.error(f"Gate BLOCKED - high-tier items still visible (page: counts): {blocked} - nothing written")
+        record(conn, sha, rel, None, "blocked")
         return 2
     if moderate:
         log.info(f"Gate: moderate-tier items left: {dict(moderate)}")
@@ -80,6 +96,7 @@ def main(input_path: str, raw_root: str, masked_root: str) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(result, encoding="utf-8")
     log.info(f"Masked text written ({len(pages)} page(s), OCR avg {sum(confs)/len(confs):.0f}%)")
+    record(conn, sha, rel, masked_rel, "passed")
     return 0
 
 
@@ -88,8 +105,11 @@ def cli() -> None:
     parser.add_argument("pdf_path")
     parser.add_argument("--raw-root", required=True)
     parser.add_argument("--masked-root", required=True)
+    parser.add_argument("--index-root", required=True)
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    sys.exit(main(args.pdf_path, args.raw_root, args.masked_root))
+    sys.exit(main(args.pdf_path, args.raw_root, args.masked_root,
+                  args.index_root, args.force))
 
 
 if __name__ == "__main__":

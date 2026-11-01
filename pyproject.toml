@@ -29,6 +29,7 @@ include = [
     "main.py",
     "local_pipeline.py",
     "local_redact.py",
+    "local_index.py",
     "prompt.md",
     "prompt_en.md",
 ]

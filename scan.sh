@@ -4,25 +4,28 @@ set -euo pipefail
 PIPELINE_DIR="$HOME/git/private-pdf-translator"
 IMAGE="german-mail-pipeline"
 
+FORCE=""
+if [ "${1:-}" = "--force" ]; then FORCE="--force"; shift; fi
+
 # 1. Validate input and folders
 if [ -z "${1:-}" ] || [ ! -f "$1" ]; then
-    echo "❌ Usage: scan.sh <path-to-pdf>"
+    echo "❌ Usage: scan.sh [--force] <path-to-pdf>"
     exit 1
 fi
-if [ -z "${SCAN_RAW_ROOT:-}" ] || [ -z "${SCAN_MASKED_ROOT:-}" ]; then
-    echo "❌ Set SCAN_RAW_ROOT and SCAN_MASKED_ROOT (two separate folders)."
+if [ -z "${SCAN_ROOT:-}" ]; then
+    echo "❌ Set SCAN_ROOT (folder with original/, masked/ and index/)."
     exit 1
 fi
-RAW_ROOT=$(cd "$SCAN_RAW_ROOT" && pwd -P)
-mkdir -p "$SCAN_MASKED_ROOT"
-MASKED_ROOT=$(cd "$SCAN_MASKED_ROOT" && pwd -P)
+for d in original masked index; do
+    [ -d "$SCAN_ROOT/$d" ] || { echo "❌ Missing folder: $SCAN_ROOT/$d"; exit 1; }
+done
+RAW_ROOT=$(cd "$SCAN_ROOT/original" && pwd -P)
+MASKED_ROOT=$(cd "$SCAN_ROOT/masked" && pwd -P)
+INDEX_ROOT=$(cd "$SCAN_ROOT/index" && pwd -P)
 INPUT="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
 case "$INPUT" in
     "$RAW_ROOT"/*) ;;
-    *) echo "❌ File is not inside SCAN_RAW_ROOT: $RAW_ROOT"; exit 1 ;;
-esac
-case "$MASKED_ROOT/" in
-    "$RAW_ROOT"/*) echo "❌ Masked folder must not be inside the raw folder."; exit 1 ;;
+    *) echo "❌ File is not inside $RAW_ROOT"; exit 1 ;;
 esac
 REL="${INPUT#"$RAW_ROOT"/}"
 
@@ -36,7 +39,7 @@ _needs_build() {
         return 0
     fi
     IMAGE_TS=$(docker inspect "$IMAGE" --format='{{.Created}}' | xargs -I{} date -j -f "%Y-%m-%dT%H:%M:%S" "{}" "+%s" 2>/dev/null)
-    LATEST=$(stat -f "%m" "$PIPELINE_DIR"/{Dockerfile,pyproject.toml,pipeline.py,local_pipeline.py,local_redact.py} | sort -n | tail -1)
+    LATEST=$(stat -f "%m" "$PIPELINE_DIR"/{Dockerfile,pyproject.toml,pipeline.py,local_pipeline.py,local_redact.py,local_index.py} | sort -n | tail -1)
     [ "$LATEST" -gt "$IMAGE_TS" ]
 }
 if _needs_build; then
@@ -50,7 +53,9 @@ CODE=0
 docker run --rm --network none --entrypoint python3 \
     --mount "type=bind,source=${RAW_ROOT},target=/raw,readonly" \
     --mount "type=bind,source=${MASKED_ROOT},target=/masked" \
-    "$IMAGE" local_pipeline.py "/raw/$REL" --raw-root /raw --masked-root /masked || CODE=$?
+    --mount "type=bind,source=${INDEX_ROOT},target=/index" \
+    "$IMAGE" local_pipeline.py "/raw/$REL" --raw-root /raw --masked-root /masked \
+    --index-root /index $FORCE || CODE=$?
 
 case "$CODE" in
     0) echo "✅ Gate passed. Masked file: $MASKED_ROOT/${REL%.*}.txt" ;;
