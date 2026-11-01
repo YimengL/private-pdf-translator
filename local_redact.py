@@ -7,7 +7,7 @@ from pipeline import _get_presidio_de, _redact
 
 log = logging.getLogger(__name__)
 
-HIGH_TIER = {"TAX_ID", "PASSWORD"}
+HIGH_TIER = {"TAX_ID", "PASSWORD", "ID_NUMBER", "DATE_OF_BIRTH"}
 MODERATE_TIER = {"IBAN_CODE", "PHONE_NUMBER"}
 
 EXTRA_RECOGNIZERS = [
@@ -16,6 +16,24 @@ EXTRA_RECOGNIZERS = [
         patterns=[Pattern(
             "pin_no_colon",
             r"\b(?:PIN(?:-Code)?|Geheimzahl|TAN|Zugangscode)\b\s*[:=]?\s*\d{4,8}\b",
+            0.85)],
+        supported_language="de",
+    ),
+    PatternRecognizer(
+        supported_entity="ID_NUMBER",
+        patterns=[Pattern(
+            "id_number",
+            r"\b(?:Personalausweis(?:nummer)?|Ausweisnummer|Ausweis-Nr\.?|"
+            r"Reisepass(?:nummer)?|Pass-Nr\.?)\s*[:=]?\s*(?=[A-Z0-9]*\d)[A-Z0-9]{9,10}\b",
+            0.85)],
+        supported_language="de",
+    ),
+    PatternRecognizer(
+        supported_entity="DATE_OF_BIRTH",
+        patterns=[Pattern(
+            "dob_labelled",
+            r"\b(?:Geburtsdatum|geboren(?:\s+am)?|geb\.)\s*[:=]?\s*"
+            r"\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2})\b",
             0.85)],
         supported_language="de",
     ),
